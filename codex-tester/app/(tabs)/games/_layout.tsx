@@ -9,13 +9,21 @@ export default function Layout() {
             },
         }}>
             {/* Optionally configure static options outside the route.*/}
-            <Stack.Screen name="index" options={{
-                headerShown: false,
-                title: 'Games',
-            }} />
-            <Stack.Screen name="spades" options={{
-            title: 'Spades',
-        }} />
+      <Stack.Screen
+        name="index"
+        options={{
+          headerShown: false,
+          title: 'Games',
+        }}
+      />
+      <Stack.Screen
+        name="spades"
+        options={{ title: 'Spades Games', headerBackTitle: 'Games' }}
+      />
+      <Stack.Screen
+        name="spades/add"
+        options={{ title: 'Add Spades Game', headerBackTitle: 'Spades' }}
+      />
         </Stack>
     );
 }

@@ -21,10 +21,6 @@ export default function RootLayout() {
           name="game/[id]"
           options={{ title: 'Game Details', headerBackTitle: 'Home' }}
         />
-        <Stack.Screen
-          name="spades"
-          options={{ title: 'Spades Scorecard', headerBackTitle: 'Games' }}
-        />
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>
