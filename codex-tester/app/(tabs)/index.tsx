@@ -1,5 +1,6 @@
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { Link } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -41,12 +42,17 @@ const renderCard = ({ item }: { item: Summary }) => {
 };
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
+
   return (
     <ThemedView style={styles.screen}>
       <FlatList
         data={GAME_SUMMARIES}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 32 },
+        ]}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         renderItem={renderCard}
       />
@@ -59,7 +65,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    padding: 20,
+    paddingHorizontal: 20,
   },
   separator: {
     height: 16,
