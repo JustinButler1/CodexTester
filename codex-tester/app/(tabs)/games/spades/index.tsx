@@ -1,21 +1,24 @@
-import React from 'react';
 import { Link } from 'expo-router';
+import React from 'react';
 import {
+  Animated,
   FlatList,
   ListRenderItemInfo,
   Pressable,
   StyleSheet,
   Text,
-  View,
+  View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Colors } from '@/constants/theme';
 import { GAME_SUMMARIES } from '@/constants/mock-games';
+import { Colors } from '@/constants/theme';
 
 type Summary = (typeof GAME_SUMMARIES)[number];
 
 const BUTTON_CLEARANCE = 132;
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 
 const getScores = (finalScore: string) => {
   const [first, second] = finalScore.split('–').map((part) => part.trim());
@@ -135,7 +138,7 @@ export default function SpadesGamesScreen() {
 
       <View pointerEvents="box-none" style={styles.fabArena}>
         <Link href="/games/spades/add" asChild>
-          <Pressable style={[styles.fabButton, { transform: [{ translateY: fabShift }] }]}> 
+          <Pressable style={styles.fabButton}> 
             <Text style={styles.fabText}>Add Spades Game</Text>
           </Pressable>
         </Link>
