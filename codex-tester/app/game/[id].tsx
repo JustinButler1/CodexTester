@@ -1,13 +1,14 @@
 import { ScrollView, StyleSheet, View, Text } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { GAME_DETAILS } from '@/constants/mock-games';
+import { spadesStore } from '@/src/shared/spades-store';
 import { Colors } from '@/constants/theme';
 
 const formatChange = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 
 export default function GameDetailsScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const detail = id ? GAME_DETAILS[id] : undefined;
+  const detail = id ? spadesStore.getDetail(id) ?? GAME_DETAILS[id] : undefined;
 
   if (!detail) {
     return (

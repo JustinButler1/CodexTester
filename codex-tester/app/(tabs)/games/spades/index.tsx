@@ -1,23 +1,22 @@
 import { Link } from 'expo-router';
 import React from 'react';
 import {
-  Animated,
   FlatList,
   ListRenderItemInfo,
   Pressable,
   StyleSheet,
   Text,
-  View
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { GAME_SUMMARIES } from '@/constants/mock-games';
+import { GameSummary } from '@/constants/mock-games';
 import { Colors } from '@/constants/theme';
+import { spadesStore } from '@/src/shared/spades-store';
 
-type Summary = (typeof GAME_SUMMARIES)[number];
+type Summary = GameSummary;
 
 const BUTTON_CLEARANCE = 132;
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 
 const getScores = (finalScore: string) => {
@@ -73,8 +72,16 @@ SummaryCard.displayName = 'SummaryCard';
 
 export default function SpadesGamesScreen() {
   const insets = useSafeAreaInsets();
+  const [games, setGames] = React.useState<Summary[]>(() => spadesStore.getSummaries());
   const [fabShift, setFabShift] = React.useState(0);
   const metricsRef = React.useRef({ content: 0, layout: 0, offset: 0 });
+
+  React.useEffect(() => {
+    const unsubscribe = spadesStore.subscribe(() => {
+      setGames(spadesStore.getSummaries());
+    });
+    return unsubscribe;
+  }, []);
 
   const recalcFabShift = React.useCallback(() => {
     const { content, layout, offset } = metricsRef.current;
@@ -109,7 +116,7 @@ export default function SpadesGamesScreen() {
   return (
     <View style={styles.screen}>
       <FlatList
-        data={GAME_SUMMARIES}
+        data={games}
         keyExtractor={(item) => item.id}
         contentContainerStyle={[
           styles.listContent,

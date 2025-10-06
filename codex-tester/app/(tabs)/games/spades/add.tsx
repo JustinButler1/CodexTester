@@ -7,12 +7,16 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { GameDetail } from '@/constants/mock-games';
 import { Colors } from '@/constants/theme';
+import { spadesStore } from '@/src/shared/spades-store';
 
 type TeamSummary = {
   id: string;
@@ -32,13 +36,6 @@ type RoundSnapshot = {
   }>;
 };
 
-type LiveGame = {
-  teams: TeamSummary[];
-  goalScore: number;
-  startedAt: string;
-  rounds: RoundSnapshot[];
-};
-
 type PendingEntry = {
   teamId: string;
   bid: number;
@@ -55,106 +52,24 @@ type BooksDraft = {
   books: number;
 };
 
-const DUMMY_LIVE_GAME: LiveGame = {
-  teams: [
-    {
-      id: 'team-1',
-      label: 'Avery & Kai',
-      players: ['Avery', 'Kai'],
-    },
-    {
-      id: 'team-2',
-      label: 'Jess & Malik',
-      players: ['Jess', 'Malik'],
-    },
-  ],
-  goalScore: 500,
-  startedAt: 'Apr 3, 2024',
-  rounds: [
-    {
-      id: 'round-1',
-      number: 1,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 5, books: 6, scoreChange: 52, runningTotal: 52 },
-        { teamId: 'team-2', bid: 4, books: 3, scoreChange: -41, runningTotal: -41 },
-      ],
-    },
-    {
-      id: 'round-2',
-      number: 2,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 7, books: 7, scoreChange: 70, runningTotal: 122 },
-        { teamId: 'team-2', bid: 5, books: 5, scoreChange: 50, runningTotal: 9 },
-      ],
-    },
-    {
-      id: 'round-3',
-      number: 3,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 6, books: 6, scoreChange: 60, runningTotal: 182 },
-        { teamId: 'team-2', bid: 0, books: 2, scoreChange: -100, runningTotal: -91 },
-      ],
-    },
-    {
-      id: 'round-4',
-      number: 4,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 4, books: 5, scoreChange: 44, runningTotal: 226 },
-        { teamId: 'team-2', bid: 4, books: 4, scoreChange: 40, runningTotal: -51 },
-      ],
-    },
-    {
-      id: 'round-5',
-      number: 5,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 5, books: 5, scoreChange: 50, runningTotal: 276 },
-        { teamId: 'team-2', bid: 5, books: 5, scoreChange: 50, runningTotal: -1 },
-      ],
-    },
-    {
-      id: 'round-6',
-      number: 6,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 6, books: 6, scoreChange: 60, runningTotal: 336 },
-        { teamId: 'team-2', bid: 6, books: 7, scoreChange: 70, runningTotal: 69 },
-      ],
-    },
-    {
-      id: 'round-7',
-      number: 7,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 7, books: 5, scoreChange: -20, runningTotal: 316 },
-        { teamId: 'team-2', bid: 7, books: 5, scoreChange: -20, runningTotal: 49 },
-      ],
-    },
-    {
-      id: 'round-8',
-      number: 8,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 4, books: 4, scoreChange: 40, runningTotal: 356 },
-        { teamId: 'team-2', bid: 4, books: 5, scoreChange: 44, runningTotal: 93 },
-      ],
-    },
-    {
-      id: 'round-9',
-      number: 9,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 5, books: 6, scoreChange: 52, runningTotal: 408 },
-        { teamId: 'team-2', bid: 5, books: 5, scoreChange: 50, runningTotal: 143 },
-      ],
-    },
-    {
-      id: 'round-10',
-      number: 10,
-      teamSummaries: [
-        { teamId: 'team-1', bid: 7, books: 13, scoreChange: 104, runningTotal: 512 },
-        { teamId: 'team-2', bid: 5, books: 5, scoreChange: 50, runningTotal: 193 },
-      ],
-    },
-  ],
+type EditDraft = {
+  teams: TeamSummary[];
+  goal: string;
 };
 
+const DEFAULT_TEAMS: TeamSummary[] = [
+  { id: 'team-1', label: 'Team One', players: ['', ''] },
+  { id: 'team-2', label: 'Team Two', players: ['', ''] },
+];
+
+const DEFAULT_GOAL = 500;
+
 const BID_VALUES = [0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+
+const formatChange = (value: number) => (value > 0 ? `+${value}` : `${value}`);
+
+const formatDisplayDate = (date: Date) =>
+  new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
 
 const nextBidValue = (current: number, direction: 1 | -1) => {
   const index = BID_VALUES.findIndex((value) => value === current);
@@ -164,8 +79,6 @@ const nextBidValue = (current: number, direction: 1 | -1) => {
   const nextIndex = Math.min(BID_VALUES.length - 1, Math.max(0, index + direction));
   return BID_VALUES[nextIndex];
 };
-
-const formatChange = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 
 const calculateScoreChange = (bid: number, books: number, blind: boolean) => {
   if (bid === 0) {
@@ -205,49 +118,65 @@ const createDraft = (
 const buildEmptyBooksDraft = (teams: TeamSummary[]): BooksDraft[] =>
   teams.map((team) => ({ teamId: team.id, books: 0 }));
 
-const extractRunningTotals = (rounds: RoundSnapshot[]) => {
+const extractRunningTotals = (rounds: RoundSnapshot[], teams: TeamSummary[]) => {
   const totals = new Map<string, number>();
+  teams.forEach((team) => totals.set(team.id, 0));
+
   rounds.forEach((round) => {
     round.teamSummaries.forEach((team) => {
       totals.set(team.teamId, team.runningTotal);
     });
   });
+
   return totals;
 };
 
 export default function LiveSpadesScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const teams = React.useMemo(() => DUMMY_LIVE_GAME.teams, []);
-  const [rounds, setRounds] = React.useState<RoundSnapshot[]>(DUMMY_LIVE_GAME.rounds);
+
+  const [startedAt] = React.useState(() => new Date());
+  const startedAtLabel = React.useMemo(() => formatDisplayDate(startedAt), [startedAt]);
+
+  const [teams, setTeams] = React.useState<TeamSummary[]>(() =>
+    DEFAULT_TEAMS.map((team) => ({ ...team, players: [...team.players] })),
+  );
+  const [goalScore, setGoalScore] = React.useState<number>(DEFAULT_GOAL);
+  const [rounds, setRounds] = React.useState<RoundSnapshot[]>([]);
   const roundsCount = rounds.length;
   const [pendingRound, setPendingRound] = React.useState<PendingRoundState | null>(null);
-  const [draftRound, setDraftRound] = React.useState<PendingRoundState>(() =>
-    createDraft(teams, DUMMY_LIVE_GAME.rounds.length + 1),
-  );
-  const [booksDraft, setBooksDraft] = React.useState<BooksDraft[]>(() => buildEmptyBooksDraft(teams));
+  const [draftRound, setDraftRound] = React.useState<PendingRoundState>(() => createDraft(DEFAULT_TEAMS, 1));
+  const [booksDraft, setBooksDraft] = React.useState<BooksDraft[]>(() => buildEmptyBooksDraft(DEFAULT_TEAMS));
   const [isModalVisible, setModalVisible] = React.useState(false);
   const [isBooksModalVisible, setBooksModalVisible] = React.useState(false);
+  const [isEditModalVisible, setEditModalVisible] = React.useState(true);
+  const [editDraft, setEditDraft] = React.useState<EditDraft>(() => ({
+    teams: DEFAULT_TEAMS.map((team) => ({ ...team, players: [...team.players] })),
+    goal: String(DEFAULT_GOAL),
+  }));
+  const [isFinishConfirmVisible, setFinishConfirmVisible] = React.useState(false);
 
   const sheetOffset = React.useRef(new Animated.Value(0)).current;
-  const teamLookup = React.useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
 
-  const runningTotals = React.useMemo(() => extractRunningTotals(rounds), [rounds]);
+  const teamLookup = React.useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
+  const runningTotals = React.useMemo(() => extractRunningTotals(rounds, teams), [rounds, teams]);
+
   const scoreLine = React.useMemo(() => {
-    const [teamOne, teamTwo] = teams;
+    const teamOne = teams[0];
+    const teamTwo = teams[1];
+    if (!teamOne || !teamTwo) {
+      return '—';
+    }
+
     const scoreOne = runningTotals.get(teamOne.id) ?? 0;
     const scoreTwo = runningTotals.get(teamTwo.id) ?? 0;
     return `${scoreOne} – ${scoreTwo}`;
   }, [runningTotals, teams]);
 
-  React.useEffect(() => {
-    if (!pendingRound) {
-      setDraftRound(createDraft(teams, roundsCount + 1));
-    }
-  }, [pendingRound, roundsCount, teams]);
-
   const resetDraft = React.useCallback(
     (source?: PendingRoundState | null) => {
-      setDraftRound(createDraft(teams, source?.roundNumber ?? roundsCount + 1, source));
+      const roundNumber = source?.roundNumber ?? roundsCount + 1;
+      setDraftRound(createDraft(teams, roundNumber, source ?? null));
     },
     [teams, roundsCount],
   );
@@ -324,10 +253,14 @@ export default function LiveSpadesScreen() {
   }, []);
 
   const confirmDraft = React.useCallback(() => {
-    setPendingRound({ ...draftRound });
+    const roundNumber = draftRound.roundNumber ?? roundsCount + 1;
+    setPendingRound({
+      roundNumber,
+      entries: draftRound.entries.map((entry) => ({ ...entry })),
+    });
     setBooksDraft(buildEmptyBooksDraft(teams));
     closeModal();
-  }, [closeModal, draftRound, teams]);
+  }, [draftRound, closeModal, teams, roundsCount]);
 
   const handleOpenBooks = React.useCallback(() => {
     if (!pendingRound) {
@@ -343,7 +276,7 @@ export default function LiveSpadesScreen() {
       return;
     }
 
-    const baseTotals = extractRunningTotals(rounds);
+    const baseTotals = extractRunningTotals(rounds, teams);
     const summaries = pendingRound.entries.map((entry) => {
       const booksEntry = booksDraft.find((item) => item.teamId === entry.teamId);
       const books = booksEntry ? booksEntry.books : 0;
@@ -360,14 +293,14 @@ export default function LiveSpadesScreen() {
       };
     });
 
-    const nextRoundNumber = pendingRound.roundNumber;
-    const roundId = `round-${nextRoundNumber}`;
+    const roundNumber = pendingRound.roundNumber ?? roundsCount + 1;
+    const roundId = `round-${roundNumber}`;
 
     setRounds((prev) => [
       ...prev,
       {
         id: roundId,
-        number: nextRoundNumber,
+        number: roundNumber,
         teamSummaries: summaries,
       },
     ]);
@@ -375,7 +308,138 @@ export default function LiveSpadesScreen() {
     setPendingRound(null);
     setBooksDraft(buildEmptyBooksDraft(teams));
     setBooksModalVisible(false);
-  }, [booksDraft, pendingRound, rounds, teams]);
+  }, [booksDraft, pendingRound, rounds, teams, roundsCount]);
+
+  const openEditModal = React.useCallback(() => {
+    setEditDraft({
+      teams: teams.map((team) => ({ ...team, players: [...team.players] })),
+      goal: String(goalScore),
+    });
+    setEditModalVisible(true);
+  }, [teams, goalScore]);
+
+  const closeEditModal = React.useCallback(() => {
+    setEditModalVisible(false);
+  }, []);
+
+  const handleDraftTeamLabel = React.useCallback((teamId: string, value: string) => {
+    setEditDraft((prev) => ({
+      teams: prev.teams.map((team) =>
+        team.id === teamId ? { ...team, label: value } : team,
+      ),
+      goal: prev.goal,
+    }));
+  }, []);
+
+  const handleDraftPlayer = React.useCallback((teamId: string, index: number, value: string) => {
+    setEditDraft((prev) => ({
+      goal: prev.goal,
+      teams: prev.teams.map((team) =>
+        team.id === teamId
+          ? {
+              ...team,
+              players: team.players.map((player, playerIndex) =>
+                playerIndex === index ? value : player,
+              ),
+            }
+          : team,
+      ),
+    }));
+  }, []);
+
+  const handleDraftGoal = React.useCallback((value: string) => {
+    setEditDraft((prev) => ({
+      ...prev,
+      goal: value.replace(/[^0-9]/g, ''),
+    }));
+  }, []);
+
+  const handleConfirmEdit = React.useCallback(() => {
+    const sanitizedTeams = editDraft.teams.map((team, index) => ({
+      ...team,
+      label: team.label.trim() || `Team ${index + 1}`,
+      players: team.players.map((player) => player.trim()),
+    }));
+
+    const parsedGoal = Number.parseInt(editDraft.goal, 10);
+    const nextGoal = Number.isNaN(parsedGoal) ? goalScore : parsedGoal;
+
+    const updatedPending = pendingRound
+      ? {
+          roundNumber: pendingRound.roundNumber,
+          entries: sanitizedTeams.map((team) => {
+            const existing = pendingRound.entries.find((entry) => entry.teamId === team.id);
+            return existing ? { ...existing, teamId: team.id } : { teamId: team.id, bid: 4, blind: false };
+          }),
+        }
+      : null;
+    const roundNumber = updatedPending?.roundNumber ?? roundsCount + 1;
+
+    setTeams(sanitizedTeams);
+    setGoalScore(nextGoal);
+    setBooksDraft(buildEmptyBooksDraft(sanitizedTeams));
+    setPendingRound(updatedPending);
+    setDraftRound(createDraft(sanitizedTeams, roundNumber, updatedPending));
+    setEditDraft({
+      teams: sanitizedTeams.map((team) => ({ ...team, players: [...team.players] })),
+      goal: String(nextGoal),
+    });
+    setEditModalVisible(false);
+  }, [editDraft, goalScore, pendingRound, roundsCount]);
+
+  const handleFinishPress = React.useCallback(() => {
+    setFinishConfirmVisible(true);
+  }, []);
+
+  const handleCancelFinish = React.useCallback(() => {
+    setFinishConfirmVisible(false);
+  }, []);
+
+  const handleConfirmFinish = React.useCallback(() => {
+    const teamOne = teams[0];
+    const teamTwo = teams[1];
+    if (!teamOne || !teamTwo) {
+      setFinishConfirmVisible(false);
+      router.back();
+      return;
+    }
+
+    const totals = extractRunningTotals(rounds, teams);
+    const teamOneScore = totals.get(teamOne.id) ?? 0;
+    const teamTwoScore = totals.get(teamTwo.id) ?? 0;
+    const finalScore = `${teamOneScore} – ${teamTwoScore}`;
+    const winningTeam: 'teamOne' | 'teamTwo' =
+      teamTwoScore > teamOneScore ? 'teamTwo' : 'teamOne';
+
+    const detailRounds: GameDetail['rounds'] = rounds.map((round) => ({
+      number: round.number,
+      teamSummaries: round.teamSummaries.map((teamSummary) => {
+        const team = teams.find((candidate) => candidate.id === teamSummary.teamId);
+        return {
+          teamLabel: team?.label ?? '',
+          bid: teamSummary.bid,
+          books: teamSummary.books,
+          scoreChange: teamSummary.scoreChange,
+          runningTotal: teamSummary.runningTotal,
+        };
+      }),
+    }));
+
+    const detail: GameDetail = {
+      id: `game-${Date.now()}`,
+      teamOne: teamOne.label,
+      teamTwo: teamTwo.label,
+      winningTeam,
+      finalScore,
+      date: formatDisplayDate(new Date()),
+      goalScore,
+      rounds: detailRounds,
+    };
+
+    spadesStore.addGame(detail);
+    setFinishConfirmVisible(false);
+    router.back();
+  }, [goalScore, rounds, router, teams]);
 
   const sheetTranslate = sheetOffset.interpolate({
     inputRange: [0, 600],
@@ -390,66 +454,95 @@ export default function LiveSpadesScreen() {
           styles.scrollContent,
           {
             paddingTop: insets.top + 16,
-            paddingBottom: insets.bottom + 180,
+            paddingBottom: insets.bottom + 200,
           },
         ]}>
         <View style={styles.header}>
           <View style={styles.headerMeta}>
-            <Text style={styles.headerLabel}>Live Spades</Text>
-            <Text style={styles.headerDate}>{DUMMY_LIVE_GAME.startedAt}</Text>
+            <View>
+              <Text style={styles.headerLabel}>Live Spades</Text>
+              <Text style={styles.headerDate}>{startedAtLabel}</Text>
+            </View>
+            <Pressable style={styles.editChip} onPress={openEditModal}>
+              <Text style={styles.editChipText}>Edit</Text>
+            </Pressable>
           </View>
-          <View style={styles.headerTeams}>
-            {teams.map((team) => (
-              <View key={team.id} style={styles.headerTeamPill}>
-                <Text style={styles.headerTeamLabel}>{team.label}</Text>
-              </View>
-            ))}
-          </View>
+          {teams.length > 0 && (
+            <View style={styles.headerTeams}>
+              {teams.map((team) => (
+                <View key={team.id} style={styles.headerTeamPill}>
+                  <Text style={styles.headerTeamLabel}>{team.label}</Text>
+                </View>
+              ))}
+            </View>
+          )}
           <View style={styles.scoreBanner}>
             <Text style={styles.scoreBannerLabel}>Current Score</Text>
             <Text style={styles.scoreBannerValue}>{scoreLine}</Text>
-            <Text style={styles.scoreGoal}>Goal · {DUMMY_LIVE_GAME.goalScore} pts</Text>
+            <Text style={styles.scoreGoal}>Goal · {goalScore} pts</Text>
           </View>
+          {teams.length > 0 && (
+            <View style={styles.lineup}>
+              {teams.map((team) => {
+                const playerNames = team.players.filter((player) => player.trim().length > 0);
+                return (
+                  <View key={`${team.id}-lineup`} style={styles.lineupRow}>
+                    <Text style={styles.lineupLabel}>{team.label}</Text>
+                    <Text style={styles.lineupPlayers}>
+                      {playerNames.length ? playerNames.join(' • ') : '—'}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Round History</Text>
-          <View style={styles.roundList}>
-            {rounds.map((round) => (
-              <View key={round.id} style={styles.roundCard}>
-                <View style={styles.roundHeader}>
-                  <Text style={styles.roundHeading}>Round {round.number}</Text>
-                </View>
-                <View style={styles.roundColumns}>
-                  <Text style={[styles.roundHeaderLabel, styles.roundTeamName]}>Team</Text>
-                  <Text style={[styles.roundHeaderLabel, styles.roundStat]}>Bid</Text>
-                  <Text style={[styles.roundHeaderLabel, styles.roundStat]}>Books</Text>
-                  <Text style={[styles.roundHeaderLabel, styles.roundDelta]}>Δ</Text>
-                  <Text style={[styles.roundHeaderLabel, styles.roundTotal]}>Total</Text>
-                </View>
-                {round.teamSummaries.map((teamSummary) => {
-                  const team = teamLookup.get(teamSummary.teamId);
-                  if (!team) {
-                    return null;
-                  }
-                  const deltaStyle =
-                    teamSummary.scoreChange >= 0 ? styles.roundPositive : styles.roundNegative;
+          {rounds.length === 0 ? (
+            <View style={styles.emptyRounds}>
+              <Text style={styles.emptyRoundsTitle}>No rounds recorded</Text>
+              <Text style={styles.emptyRoundsSubtitle}>Tap Set Bids to track your first round.</Text>
+            </View>
+          ) : (
+            <View style={styles.roundList}>
+              {rounds.map((round) => (
+                <View key={round.id} style={styles.roundCard}>
+                  <View style={styles.roundHeader}>
+                    <Text style={styles.roundHeading}>Round {round.number}</Text>
+                  </View>
+                  <View style={styles.roundColumns}>
+                    <Text style={[styles.roundHeaderLabel, styles.roundTeamName]}>Team</Text>
+                    <Text style={[styles.roundHeaderLabel, styles.roundStat]}>Bid</Text>
+                    <Text style={[styles.roundHeaderLabel, styles.roundStat]}>Books</Text>
+                    <Text style={[styles.roundHeaderLabel, styles.roundDelta]}>Δ</Text>
+                    <Text style={[styles.roundHeaderLabel, styles.roundTotal]}>Total</Text>
+                  </View>
+                  {round.teamSummaries.map((teamSummary) => {
+                    const team = teamLookup.get(teamSummary.teamId);
+                    if (!team) {
+                      return null;
+                    }
+                    const deltaStyle =
+                      teamSummary.scoreChange >= 0 ? styles.roundPositive : styles.roundNegative;
 
-                  return (
-                    <View key={teamSummary.teamId} style={styles.roundRow}>
-                      <Text style={styles.roundTeamName}>{team.label}</Text>
-                      <Text style={styles.roundStat}>{teamSummary.bid}</Text>
-                      <Text style={styles.roundStat}>{teamSummary.books}</Text>
-                      <Text style={[styles.roundDelta, deltaStyle]}>
-                        {formatChange(teamSummary.scoreChange)}
-                      </Text>
-                      <Text style={styles.roundTotal}>{teamSummary.runningTotal}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            ))}
-          </View>
+                    return (
+                      <View key={teamSummary.teamId} style={styles.roundRow}>
+                        <Text style={styles.roundTeamName}>{team.label}</Text>
+                        <Text style={styles.roundStat}>{teamSummary.bid}</Text>
+                        <Text style={styles.roundStat}>{teamSummary.books}</Text>
+                        <Text style={[styles.roundDelta, deltaStyle]}>
+                          {formatChange(teamSummary.scoreChange)}
+                        </Text>
+                        <Text style={styles.roundTotal}>{teamSummary.runningTotal}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
         {pendingRound && (
@@ -484,14 +577,13 @@ export default function LiveSpadesScreen() {
           <Text style={styles.fabText}>Set Bids</Text>
         </Pressable>
         <Pressable
-          style={[
-            styles.fabButton,
-            styles.secondaryFab,
-            !pendingRound && styles.fabDisabled,
-          ]}
+          style={[styles.fabButton, styles.secondaryFab, !pendingRound && styles.fabDisabled]}
           disabled={!pendingRound}
           onPress={handleOpenBooks}>
           <Text style={styles.fabText}>Log Books</Text>
+        </Pressable>
+        <Pressable style={[styles.fabButton, styles.finishFab]} onPress={handleFinishPress}>
+          <Text style={styles.fabText}>Finish Game</Text>
         </Pressable>
       </View>
 
@@ -636,6 +728,104 @@ export default function LiveSpadesScreen() {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      <Modal
+        visible={isEditModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEditModal}
+        presentationStyle="overFullScreen">
+        <TouchableWithoutFeedback onPress={closeEditModal}>
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.modalSheet, styles.editSheet]}>
+                <View style={styles.sheetHandleContainer}>
+                  <View style={styles.sheetHandle} />
+                </View>
+                <Text style={styles.sheetTitle}>Edit Match Setup</Text>
+                <ScrollView contentContainerStyle={styles.editContent} showsVerticalScrollIndicator={false}>
+                  {editDraft.teams.map((team, teamIndex) => (
+                    <View key={team.id} style={styles.editTeamBlock}>
+                      <Text style={styles.editLabel}>Team Name</Text>
+                      <TextInput
+                        style={styles.editInput}
+                        value={team.label}
+                        onChangeText={(value) => handleDraftTeamLabel(team.id, value)}
+                        placeholder={`Team ${teamIndex + 1}`}
+                        placeholderTextColor={Colors.dark.textSecondary}
+                      />
+                      <View style={styles.editPlayers}>
+                        {team.players.map((player, index) => (
+                          <View key={`${team.id}-player-${index}`} style={styles.editPlayerField}>
+                            <Text style={styles.editLabel}>Player {index + 1}</Text>
+                            <TextInput
+                              style={styles.editInput}
+                              value={player}
+                              onChangeText={(value) => handleDraftPlayer(team.id, index, value)}
+                              placeholder="Name"
+                              placeholderTextColor={Colors.dark.textSecondary}
+                            />
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
+                  <View style={styles.editTeamBlock}>
+                    <Text style={styles.editLabel}>Goal Score</Text>
+                    <TextInput
+                      style={styles.editInput}
+                      value={editDraft.goal}
+                      onChangeText={handleDraftGoal}
+                      keyboardType="number-pad"
+                      placeholder={String(DEFAULT_GOAL)}
+                      placeholderTextColor={Colors.dark.textSecondary}
+                    />
+                  </View>
+                </ScrollView>
+                <View style={styles.sheetFooter}>
+                  <Pressable style={[styles.sheetAction, styles.sheetCancel]} onPress={closeEditModal}>
+                    <Text style={styles.sheetActionText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable style={[styles.sheetAction, styles.sheetConfirm]} onPress={handleConfirmEdit}>
+                    <Text style={styles.sheetActionText}>Confirm</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal
+        visible={isFinishConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelFinish}
+        presentationStyle="overFullScreen">
+        <TouchableWithoutFeedback onPress={handleCancelFinish}>
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.modalSheet, styles.confirmSheet]}>
+                <View style={styles.sheetHandleContainer}>
+                  <View style={styles.sheetHandle} />
+                </View>
+                <Text style={styles.confirmTitle}>Finish this game?</Text>
+                <Text style={styles.confirmSubtitle}>
+                  This logs the match to the Spades library with its current rounds.
+                </Text>
+                <View style={styles.sheetFooter}>
+                  <Pressable style={[styles.sheetAction, styles.sheetCancel]} onPress={handleCancelFinish}>
+                    <Text style={styles.sheetActionText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable style={[styles.sheetAction, styles.sheetConfirm]} onPress={handleConfirmFinish}>
+                    <Text style={styles.sheetActionText}>Finish</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }
@@ -676,6 +866,21 @@ const styles = StyleSheet.create({
   },
   headerDate: {
     color: Colors.dark.textSecondary,
+    marginTop: 4,
+  },
+  editChip: {
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    backgroundColor: '#231927',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+  },
+  editChipText: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   headerTeams: {
     flexDirection: 'row',
@@ -715,6 +920,22 @@ const styles = StyleSheet.create({
     color: Colors.dark.textSecondary,
     fontSize: 13,
   },
+  lineup: {
+    marginTop: 12,
+    gap: 10,
+  },
+  lineupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  lineupLabel: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '600',
+  },
+  lineupPlayers: {
+    color: Colors.dark.textSecondary,
+  },
   section: {
     gap: 16,
   },
@@ -723,16 +944,33 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
   },
+  emptyRounds: {
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+    backgroundColor: '#161221',
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyRoundsTitle: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '700',
+  },
+  emptyRoundsSubtitle: {
+    color: Colors.dark.textSecondary,
+    textAlign: 'center',
+  },
   roundList: {
     gap: 16,
   },
   roundCard: {
     borderRadius: 24,
-    padding: 18,
-    backgroundColor: '#161221',
+    padding: 20,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.dark.border,
-    gap: 12,
+    backgroundColor: '#161221',
+    gap: 14,
   },
   roundHeader: {
     flexDirection: 'row',
@@ -851,11 +1089,12 @@ const styles = StyleSheet.create({
     bottom: 32,
     flexDirection: 'row',
     justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: 16,
   },
   fabButton: {
     borderRadius: 999,
-    paddingHorizontal: 28,
+    paddingHorizontal: 26,
     paddingVertical: 16,
     shadowColor: '#050209',
     shadowOpacity: 0.48,
@@ -870,6 +1109,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#2A2436',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.dark.border,
+  },
+  finishFab: {
+    backgroundColor: Colors.dark.negative,
   },
   fabDisabled: {
     opacity: 0.4,
@@ -894,9 +1136,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     minHeight: '60%',
     gap: 24,
-  },
-  booksSheet: {
-    minHeight: '45%',
   },
   sheetHandleContainer: {
     alignItems: 'center',
@@ -983,25 +1222,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
-  sheetAction: {
-    flex: 1,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  sheetCancel: {
-    backgroundColor: '#201B2A',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.dark.border,
-  },
-  sheetConfirm: {
-    backgroundColor: Colors.dark.accent,
-  },
-  sheetActionText: {
-    color: Colors.dark.textPrimary,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+  booksSheet: {
+    minHeight: '45%',
   },
   booksBody: {
     gap: 16,
@@ -1042,5 +1264,72 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     minWidth: 36,
     textAlign: 'center',
+  },
+  sheetAction: {
+    flex: 1,
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  sheetCancel: {
+    backgroundColor: '#201B2A',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+  },
+  sheetConfirm: {
+    backgroundColor: Colors.dark.accent,
+  },
+  sheetActionText: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  editSheet: {
+    minHeight: '65%',
+  },
+  editContent: {
+    gap: 24,
+    paddingBottom: 12,
+  },
+  editTeamBlock: {
+    gap: 14,
+  },
+  editLabel: {
+    color: Colors.dark.textSecondary,
+    fontSize: 12,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  editInput: {
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+    backgroundColor: '#1F1A27',
+    color: Colors.dark.textPrimary,
+    fontSize: 16,
+  },
+  editPlayers: {
+    gap: 12,
+  },
+  editPlayerField: {
+    gap: 8,
+  },
+  confirmSheet: {
+    minHeight: '30%',
+    justifyContent: 'space-between',
+  },
+  confirmTitle: {
+    color: Colors.dark.textPrimary,
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  confirmSubtitle: {
+    color: Colors.dark.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });
