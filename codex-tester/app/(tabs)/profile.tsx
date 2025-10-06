@@ -1,8 +1,7 @@
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { Colors } from '@/constants/theme';
 
 const PROFILE = {
   id: 'player-204',
@@ -17,81 +16,109 @@ export default function ProfileScreen() {
   const winRate = totalGames ? Math.round((PROFILE.wins / totalGames) * 100) : 0;
 
   return (
-    <ThemedView style={[styles.screen, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 32 }]}>
-      <ThemedView style={styles.headerCard}>
-        <ThemedView style={styles.avatar}>
-          <ThemedText style={styles.avatarText}>{PROFILE.name.slice(0, 1)}</ThemedText>
-        </ThemedView>
-        <ThemedText type="title" style={styles.name}>
-          {PROFILE.name}
-        </ThemedText>
-        <ThemedText style={styles.identifier}>ID: {PROFILE.id}</ThemedText>
+    <View
+      style={[
+        styles.screen,
+        { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 40 },
+      ]}>
+      <View style={styles.headerCard}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{PROFILE.name.slice(0, 1)}</Text>
+        </View>
+        <Text style={styles.name}>{PROFILE.name}</Text>
+        <Text style={styles.identifier}>ID · {PROFILE.id}</Text>
         <Pressable style={styles.editButton}>
-          <ThemedText style={styles.editButtonText}>Edit Profile</ThemedText>
+          <Text style={styles.editButtonText}>Edit Profile</Text>
         </Pressable>
-      </ThemedView>
+      </View>
 
-      <ThemedView style={styles.statsCard}>
-        <ThemedText type="subtitle">Record</ThemedText>
-        <ThemedView style={styles.statsRow}>
-          <ThemedView style={styles.statBlock}>
-            <ThemedText style={styles.statValue}>{PROFILE.wins}</ThemedText>
-            <ThemedText style={styles.statLabel}>Wins</ThemedText>
-          </ThemedView>
-          <ThemedView style={styles.statBlock}>
-            <ThemedText style={styles.statValue}>{PROFILE.losses}</ThemedText>
-            <ThemedText style={styles.statLabel}>Losses</ThemedText>
-          </ThemedView>
-          <ThemedView style={styles.statBlock}>
-            <ThemedText style={styles.statValue}>{totalGames}</ThemedText>
-            <ThemedText style={styles.statLabel}>Games</ThemedText>
-          </ThemedView>
-          <ThemedView style={styles.statBlock}>
-            <ThemedText style={styles.statValue}>{winRate}%</ThemedText>
-            <ThemedText style={styles.statLabel}>Win %</ThemedText>
-          </ThemedView>
-        </ThemedView>
-      </ThemedView>
+      <View style={styles.statsCard}>
+        <Text style={styles.sectionTitle}>Record Snapshot</Text>
+        <View style={styles.statsRow}>
+          <View style={styles.statBlock}>
+            <Text style={styles.statValue}>{PROFILE.wins}</Text>
+            <Text style={styles.statLabel}>Wins</Text>
+          </View>
+          <View style={styles.statBlock}>
+            <Text style={styles.statValue}>{PROFILE.losses}</Text>
+            <Text style={styles.statLabel}>Losses</Text>
+          </View>
+          <View style={styles.statBlock}>
+            <Text style={styles.statValue}>{totalGames}</Text>
+            <Text style={styles.statLabel}>Games</Text>
+          </View>
+          <View style={styles.statBlock}>
+            <Text style={styles.statValue}>{winRate}%</Text>
+            <Text style={styles.statLabel}>Win %</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.actionPanel}>
+        <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <View style={styles.actionRow}>
+          <Pressable style={styles.actionButton}>
+            <Text style={styles.actionTitle}>Share ID</Text>
+            <Text style={styles.actionSubtitle}>Invite friends to a table</Text>
+          </Pressable>
+          <Pressable style={styles.actionButton}>
+            <Text style={styles.actionTitle}>History</Text>
+            <Text style={styles.actionSubtitle}>View full match log</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <Pressable style={styles.primaryButton}>
-        <ThemedText style={styles.primaryButtonText}>Add Game</ThemedText>
+        <Text style={styles.primaryButtonText}>Add Game</Text>
       </Pressable>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    paddingHorizontal: 20,
-    gap: 24,
+    backgroundColor: Colors.dark.background,
+    paddingHorizontal: 24,
+    gap: 28,
   },
   headerCard: {
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 28,
+    padding: 28,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: Colors.dark.border,
+    backgroundColor: Colors.dark.surface,
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
+    shadowColor: '#07030E',
+    shadowOpacity: 0.4,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 18 },
+    elevation: 18,
   },
   avatar: {
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: 'rgba(99, 102, 241, 0.25)',
+    backgroundColor: '#221A2A',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
     fontSize: 42,
     fontWeight: '700',
+    color: Colors.dark.textPrimary,
   },
   name: {
     textAlign: 'center',
+    fontSize: 28,
+    fontWeight: '700',
+    color: Colors.dark.textPrimary,
   },
   identifier: {
-    opacity: 0.75,
+    color: Colors.dark.textSecondary,
   },
   editButton: {
     marginTop: 12,
@@ -99,25 +126,33 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: Colors.dark.border,
+    backgroundColor: '#221D2E',
   },
   editButtonText: {
     fontWeight: '600',
     letterSpacing: 0.5,
+    color: Colors.dark.textPrimary,
   },
   statsCard: {
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 28,
+    padding: 24,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    gap: 16,
+    borderColor: Colors.dark.border,
+    backgroundColor: '#161221',
+    gap: 18,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.dark.textPrimary,
+    letterSpacing: 0.4,
   },
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     flexWrap: 'wrap',
-    gap: 16,
+    gap: 20,
   },
   statBlock: {
     minWidth: 70,
@@ -127,22 +162,60 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 24,
     fontWeight: '700',
+    color: Colors.dark.textPrimary,
   },
   statLabel: {
     fontSize: 12,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    opacity: 0.7,
+    color: Colors.dark.textSecondary,
+  },
+  actionPanel: {
+    borderRadius: 24,
+    padding: 24,
+    backgroundColor: '#161221',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+    gap: 20,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  actionButton: {
+    flex: 1,
+    borderRadius: 18,
+    padding: 18,
+    backgroundColor: '#211A2A',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    gap: 6,
+  },
+  actionTitle: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  actionSubtitle: {
+    color: Colors.dark.textSecondary,
+    fontSize: 12,
   },
   primaryButton: {
     marginTop: 'auto',
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center',
-    backgroundColor: '#22c55e',
+    backgroundColor: Colors.dark.accent,
+    shadowColor: '#E0313A',
+    shadowOpacity: 0.45,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 14,
   },
   primaryButtonText: {
     fontWeight: '700',
     letterSpacing: 0.6,
+    color: Colors.dark.textPrimary,
+    textTransform: 'uppercase',
   },
 });

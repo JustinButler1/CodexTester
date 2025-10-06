@@ -5,25 +5,38 @@
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const commonColors = {
+  textPrimary: '#F6F6FB',
+  textSecondary: 'rgba(255, 255, 255, 0.68)',
+  background: '#09070F',
+  surface: '#15131F',
+  surfaceElevated: '#1E1A29',
+  border: 'rgba(255, 255, 255, 0.08)',
+  accent: '#E0313A',
+  accentSoft: '#F24C5C',
+  accentMuted: '#3F3C48',
+  positive: '#3ED598',
+  negative: '#F3566A',
+  warning: '#F2994A',
+  neutral: '#756F82',
+};
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
+    ...commonColors,
+    text: commonColors.textPrimary,
+    tint: commonColors.accent,
+    icon: commonColors.textSecondary,
+    tabIconDefault: '#4C485B',
+    tabIconSelected: commonColors.accent,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
+    ...commonColors,
+    text: commonColors.textPrimary,
+    tint: commonColors.accent,
+    icon: commonColors.textSecondary,
+    tabIconDefault: '#4C485B',
+    tabIconSelected: commonColors.accent,
   },
 };
 
