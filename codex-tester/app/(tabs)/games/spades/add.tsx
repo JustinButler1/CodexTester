@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableWithoutFeedback,
@@ -55,6 +56,7 @@ type BooksDraft = {
 type EditDraft = {
   teams: TeamSummary[];
   goal: string;
+  firstRoundSelfBid: boolean;
 };
 
 const DEFAULT_TEAMS: TeamSummary[] = [
@@ -142,6 +144,7 @@ export default function LiveSpadesScreen() {
     DEFAULT_TEAMS.map((team) => ({ ...team, players: [...team.players] })),
   );
   const [goalScore, setGoalScore] = React.useState<number>(DEFAULT_GOAL);
+  const [firstRoundSelfBid, setFirstRoundSelfBid] = React.useState(true);
   const [rounds, setRounds] = React.useState<RoundSnapshot[]>([]);
   const roundsCount = rounds.length;
   const [pendingRound, setPendingRound] = React.useState<PendingRoundState | null>(null);
@@ -153,6 +156,7 @@ export default function LiveSpadesScreen() {
   const [editDraft, setEditDraft] = React.useState<EditDraft>(() => ({
     teams: DEFAULT_TEAMS.map((team) => ({ ...team, players: [...team.players] })),
     goal: String(DEFAULT_GOAL),
+    firstRoundSelfBid: true,
   }));
   const [isFinishConfirmVisible, setFinishConfirmVisible] = React.useState(false);
 
@@ -181,11 +185,28 @@ export default function LiveSpadesScreen() {
     [teams, roundsCount],
   );
 
+  const startSelfBidRound = React.useCallback(() => {
+    if (!firstRoundSelfBid || roundsCount > 0) {
+      return false;
+    }
+    setPendingRound(() => ({
+      roundNumber: 1,
+      entries: teams.map((team) => ({ teamId: team.id, bid: 0, blind: false })),
+    }));
+    setBooksDraft(buildEmptyBooksDraft(teams));
+    return true;
+  }, [firstRoundSelfBid, roundsCount, teams]);
+
   const openModal = React.useCallback(() => {
+    if (startSelfBidRound()) {
+      setBooksModalVisible(true);
+      return;
+    }
+
     resetDraft(pendingRound);
     sheetOffset.setValue(600);
     setModalVisible(true);
-  }, [pendingRound, resetDraft, sheetOffset]);
+  }, [pendingRound, resetDraft, sheetOffset, startSelfBidRound]);
 
   const closeModal = React.useCallback(() => {
     Animated.timing(sheetOffset, {
@@ -264,11 +285,14 @@ export default function LiveSpadesScreen() {
 
   const handleOpenBooks = React.useCallback(() => {
     if (!pendingRound) {
+      if (startSelfBidRound()) {
+        setBooksModalVisible(true);
+      }
       return;
     }
     setBooksDraft(buildEmptyBooksDraft(teams));
     setBooksModalVisible(true);
-  }, [pendingRound, teams]);
+  }, [pendingRound, startSelfBidRound, teams]);
 
   const confirmBooks = React.useCallback(() => {
     if (!pendingRound) {
@@ -276,24 +300,26 @@ export default function LiveSpadesScreen() {
       return;
     }
 
+    const roundNumber = pendingRound.roundNumber ?? roundsCount + 1;
+    const isSelfBidRound = firstRoundSelfBid && roundNumber === 1;
     const baseTotals = extractRunningTotals(rounds, teams);
     const summaries = pendingRound.entries.map((entry) => {
       const booksEntry = booksDraft.find((item) => item.teamId === entry.teamId);
       const books = booksEntry ? booksEntry.books : 0;
-      const scoreChange = calculateScoreChange(entry.bid, books, entry.blind);
+      const entryBid = isSelfBidRound ? books : entry.bid;
+      const scoreChange = calculateScoreChange(entryBid, books, entry.blind);
       const runningTotal = (baseTotals.get(entry.teamId) ?? 0) + scoreChange;
       baseTotals.set(entry.teamId, runningTotal);
 
       return {
         teamId: entry.teamId,
-        bid: entry.bid,
+        bid: entryBid,
         books,
         scoreChange,
         runningTotal,
       };
     });
 
-    const roundNumber = pendingRound.roundNumber ?? roundsCount + 1;
     const roundId = `round-${roundNumber}`;
 
     setRounds((prev) => [
@@ -308,15 +334,16 @@ export default function LiveSpadesScreen() {
     setPendingRound(null);
     setBooksDraft(buildEmptyBooksDraft(teams));
     setBooksModalVisible(false);
-  }, [booksDraft, pendingRound, rounds, teams, roundsCount]);
+  }, [booksDraft, firstRoundSelfBid, pendingRound, rounds, roundsCount, teams]);
 
   const openEditModal = React.useCallback(() => {
     setEditDraft({
       teams: teams.map((team) => ({ ...team, players: [...team.players] })),
       goal: String(goalScore),
+      firstRoundSelfBid,
     });
     setEditModalVisible(true);
-  }, [teams, goalScore]);
+  }, [firstRoundSelfBid, goalScore, teams]);
 
   const closeEditModal = React.useCallback(() => {
     setEditModalVisible(false);
@@ -324,16 +351,16 @@ export default function LiveSpadesScreen() {
 
   const handleDraftTeamLabel = React.useCallback((teamId: string, value: string) => {
     setEditDraft((prev) => ({
+      ...prev,
       teams: prev.teams.map((team) =>
         team.id === teamId ? { ...team, label: value } : team,
       ),
-      goal: prev.goal,
     }));
   }, []);
 
   const handleDraftPlayer = React.useCallback((teamId: string, index: number, value: string) => {
     setEditDraft((prev) => ({
-      goal: prev.goal,
+      ...prev,
       teams: prev.teams.map((team) =>
         team.id === teamId
           ? {
@@ -354,6 +381,13 @@ export default function LiveSpadesScreen() {
     }));
   }, []);
 
+  const handleDraftSelfBid = React.useCallback((value: boolean) => {
+    setEditDraft((prev) => ({
+      ...prev,
+      firstRoundSelfBid: value,
+    }));
+  }, []);
+
   const handleConfirmEdit = React.useCallback(() => {
     const sanitizedTeams = editDraft.teams.map((team, index) => ({
       ...team,
@@ -363,6 +397,7 @@ export default function LiveSpadesScreen() {
 
     const parsedGoal = Number.parseInt(editDraft.goal, 10);
     const nextGoal = Number.isNaN(parsedGoal) ? goalScore : parsedGoal;
+    const nextSelfBid = editDraft.firstRoundSelfBid;
 
     const updatedPending = pendingRound
       ? {
@@ -377,12 +412,14 @@ export default function LiveSpadesScreen() {
 
     setTeams(sanitizedTeams);
     setGoalScore(nextGoal);
+    setFirstRoundSelfBid(nextSelfBid);
     setBooksDraft(buildEmptyBooksDraft(sanitizedTeams));
     setPendingRound(updatedPending);
     setDraftRound(createDraft(sanitizedTeams, roundNumber, updatedPending));
     setEditDraft({
       teams: sanitizedTeams.map((team) => ({ ...team, players: [...team.players] })),
       goal: String(nextGoal),
+      firstRoundSelfBid: nextSelfBid,
     });
     setEditModalVisible(false);
   }, [editDraft, goalScore, pendingRound, roundsCount]);
@@ -557,11 +594,14 @@ export default function LiveSpadesScreen() {
                 if (!team) {
                   return null;
                 }
+                const isSelfBidPending = firstRoundSelfBid && pendingRound.roundNumber === 1;
                 return (
                   <View key={entry.teamId} style={styles.pendingRow}>
                     <Text style={styles.pendingTeam}>{team.label}</Text>
                     <View style={styles.pendingBidGroup}>
-                      <Text style={styles.pendingBid}>{entry.bid} bid</Text>
+                      <Text style={styles.pendingBid}>
+                        {isSelfBidPending ? 'Self bid' : `${entry.bid} bid`}
+                      </Text>
                       {entry.blind && <Text style={styles.pendingBlind}>Blind</Text>}
                     </View>
                   </View>
@@ -780,6 +820,22 @@ export default function LiveSpadesScreen() {
                       placeholder={String(DEFAULT_GOAL)}
                       placeholderTextColor={Colors.dark.textSecondary}
                     />
+                  </View>
+                  <View style={[styles.editTeamBlock, styles.editToggleBlock]}>
+                    <View style={styles.editToggleRow}>
+                      <View style={styles.editToggleTextGroup}>
+                        <Text style={styles.editToggleLabel}>First round bids itself</Text>
+                        <Text style={styles.editToggleHint}>
+                          Skip bidding for round one and score directly from logged books.
+                        </Text>
+                      </View>
+                      <Switch
+                        value={editDraft.firstRoundSelfBid}
+                        onValueChange={handleDraftSelfBid}
+                        trackColor={{ false: '#3F3A48', true: Colors.dark.accentMuted }}
+                        thumbColor={editDraft.firstRoundSelfBid ? Colors.dark.accent : '#7B748A'}
+                      />
+                    </View>
                   </View>
                 </ScrollView>
                 <View style={styles.sheetFooter}>
@@ -1316,6 +1372,28 @@ const styles = StyleSheet.create({
   },
   editPlayerField: {
     gap: 8,
+  },
+  editToggleBlock: {
+    paddingTop: 8,
+  },
+  editToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  editToggleTextGroup: {
+    flex: 1,
+    gap: 6,
+  },
+  editToggleLabel: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '700',
+  },
+  editToggleHint: {
+    color: Colors.dark.textSecondary,
+    fontSize: 12,
+    lineHeight: 16,
   },
   confirmSheet: {
     minHeight: '30%',
