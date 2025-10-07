@@ -1,14 +1,71 @@
-import { ScrollView, StyleSheet, View, Text } from 'react-native';
+import React from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { GAME_DETAILS } from '@/constants/mock-games';
-import { spadesStore } from '@/src/shared/spades-store';
+
 import { Colors } from '@/constants/theme';
+import { fetchSpadesGameDetail, SpadesGameDetail } from '@/src/shared/spades-store';
 
 const formatChange = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 
+const formatDateTime = (value: string | null) => {
+  if (!value) {
+    return '—';
+  }
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+};
+
 export default function GameDetailsScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const detail = id ? spadesStore.getDetail(id) ?? GAME_DETAILS[id] : undefined;
+  const [detail, setDetail] = React.useState<SpadesGameDetail | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const loadDetail = async () => {
+      if (!id) {
+        setDetail(null);
+        setLoading(false);
+        return;
+      }
+      try {
+        const gameDetail = await fetchSpadesGameDetail(id);
+        if (isMounted) {
+          setDetail(gameDetail);
+        }
+      } catch (error) {
+        console.error('Failed to load game detail', error);
+        if (isMounted) {
+          setDetail(null);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+    loadDetail();
+    return () => {
+      isMounted = false;
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator size="large" color={Colors.dark.accent} />
+      </View>
+    );
+  }
 
   if (!detail) {
     return (
@@ -21,77 +78,92 @@ export default function GameDetailsScreen() {
     );
   }
 
-  const teamOneStyle = detail.winningTeam === 'teamOne' ? styles.teamWinner : styles.teamLoser;
-  const teamTwoStyle = detail.winningTeam === 'teamTwo' ? styles.teamWinner : styles.teamLoser;
+  const teamOneWon =
+    detail.team1Total !== null &&
+    detail.team2Total !== null &&
+    detail.team1Total > detail.team2Total;
+  const teamTwoWon =
+    detail.team1Total !== null &&
+    detail.team2Total !== null &&
+    detail.team2Total > detail.team1Total;
 
   return (
     <View style={styles.screen}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.summaryCard}>
           <View style={styles.teamRow}>
-            <View style={[styles.teamPill, teamOneStyle]}>
-              <Text style={styles.teamText}>{detail.teamOne}</Text>
+            <View style={[styles.teamPill, teamOneWon ? styles.teamWinner : styles.teamLoser]}>
+              <Text style={styles.teamText}>{detail.team1Name}</Text>
             </View>
             <Text style={styles.vsLabel}>vs</Text>
-            <View style={[styles.teamPill, teamTwoStyle]}>
-              <Text style={styles.teamText}>{detail.teamTwo}</Text>
+            <View style={[styles.teamPill, teamTwoWon ? styles.teamWinner : styles.teamLoser]}>
+              <Text style={styles.teamText}>{detail.team2Name}</Text>
             </View>
           </View>
           <View style={styles.metaRow}>
             <Text style={styles.metaLabel}>Final Score</Text>
             <Text style={styles.metaValue}>
-              {detail.finalScore}
+              {(detail.team1Total ?? 0).toString()} – {(detail.team2Total ?? 0).toString()}
             </Text>
-          </View>
-          <View style={styles.metaRow}>
-            <Text style={styles.metaLabel}>Date</Text>
-            <Text style={styles.metaValue}>{detail.date}</Text>
           </View>
           <View style={styles.metaRow}>
             <Text style={styles.metaLabel}>Goal</Text>
             <Text style={styles.metaValue}>{detail.goalScore} pts</Text>
           </View>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaLabel}>Started</Text>
+            <Text style={styles.metaValue}>{formatDateTime(detail.startedAt)}</Text>
+          </View>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaLabel}>Ended</Text>
+            <Text style={styles.metaValue}>{formatDateTime(detail.endedAt)}</Text>
+          </View>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Round History</Text>
-          <View style={styles.roundList}>
-            {detail.rounds.map((round) => (
-              <View key={`round-${round.number}`} style={styles.roundCard}>
-                <View style={styles.roundHeader}>
-                  <Text style={styles.roundHeading}>Round {round.number}</Text>
+          {detail.rounds.length === 0 ? (
+            <View style={styles.roundEmptyState}>
+              <Text style={styles.roundEmptyTitle}>No hands recorded</Text>
+              <Text style={styles.roundEmptySubtitle}>This game was saved without round-by-round scores.</Text>
+            </View>
+          ) : (
+            <View style={styles.roundList}>
+              {detail.rounds.map((round) => (
+                <View key={`round-${round.number}`} style={styles.roundCard}>
+                  <View style={styles.roundHeader}>
+                    <Text style={styles.roundHeading}>Round {round.number}</Text>
+                  </View>
+                  <View style={styles.roundTeamsHeader}>
+                  <Text style={[styles.roundHeaderLabel, styles.roundTeamHeader]} numberOfLines={1}>
+                      Team
+                    </Text>
+                    <Text style={[styles.roundHeaderLabel, styles.roundStat]}>Bid/Books</Text>
+                    <Text style={[styles.roundHeaderLabel, styles.roundDelta]}>Δ</Text>
+                    <Text style={[styles.roundHeaderLabel, styles.roundTotal]}>Total</Text>
+                  </View>
+                  <View style={styles.roundTeams}>
+                    {round.teamSummaries.map((team) => (
+                      <View key={`${round.number}-${team.teamId}`} style={styles.roundTeamRow}>
+                      <Text style={styles.roundTeamLabel}>{team.teamLabel}</Text>
+                        <Text style={styles.roundStat}>
+                          {team.bid}/{team.books}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.roundDelta,
+                            team.scoreChange >= 0 ? styles.roundPositive : styles.roundNegative,
+                          ]}>
+                          {formatChange(team.scoreChange)}
+                        </Text>
+                        <Text style={styles.roundTotal}>{team.runningTotal}</Text>
+                      </View>
+                    ))}
+                  </View>
                 </View>
-                <View style={styles.roundTeamsHeader}>
-                  <Text style={[styles.roundHeaderLabel, styles.roundTeamName]} numberOfLines={1}>
-                    Team
-                  </Text>
-                  <Text style={[styles.roundHeaderLabel, styles.roundStat]}>Bid/Books</Text>
-                  <Text style={[styles.roundHeaderLabel, styles.roundDelta]}>Δ</Text>
-                  <Text style={[styles.roundHeaderLabel, styles.roundTotal]}>Total</Text>
-                </View>
-                <View style={styles.roundTeams}>
-                  {round.teamSummaries.map((team) => (
-                    <View key={`${round.number}-${team.teamLabel}`} style={styles.roundTeamRow}>
-                      <Text style={styles.roundTeamName}>{team.teamLabel}</Text>
-                      <Text style={styles.roundStat}>
-                        {team.bid}/{team.books}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.roundDelta,
-                          team.scoreChange >= 0 ? styles.roundPositive : styles.roundNegative,
-                        ]}>
-                        {formatChange(team.scoreChange)}
-                      </Text>
-                      <Text style={styles.roundTotal}>{team.runningTotal}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -102,6 +174,12 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: Colors.dark.background,
+  },
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: Colors.dark.background,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollContent: {
     paddingHorizontal: 24,
@@ -148,6 +226,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingVertical: 12,
     paddingHorizontal: 16,
+  },
+  teamWinner: {
+    backgroundColor: '#261823',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.accentSoft,
+  },
+  teamLoser: {
+    backgroundColor: '#1E1A2A',
   },
   teamText: {
     fontWeight: '600',
@@ -198,77 +284,70 @@ const styles = StyleSheet.create({
   roundHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
   },
   roundHeading: {
     color: Colors.dark.textPrimary,
     fontWeight: '700',
-    fontSize: 18,
   },
   roundTeamsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 4,
-    marginTop: 4,
   },
   roundHeaderLabel: {
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
     color: Colors.dark.textSecondary,
-    fontWeight: '500',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
-  roundTeams: {
-    marginTop: 4,
-    gap: 8,
-  },
-  roundTeamRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.04)',
-  },
-  roundTeamName: {
-    flex: 1.4,
-    fontWeight: '600',
-    color: Colors.dark.textPrimary,
+  roundTeamHeader: {
+    flex: 1.2,
   },
   roundStat: {
     flex: 0.8,
     textAlign: 'center',
-    fontVariant: ['tabular-nums'],
-    color: Colors.dark.textSecondary,
   },
   roundDelta: {
-    flex: 0.6,
+    flex: 0.4,
     textAlign: 'center',
-    fontVariant: ['tabular-nums'],
-    fontWeight: '600',
+    fontWeight: '700',
   },
   roundTotal: {
-    flex: 0.8,
-    textAlign: 'right',
-    fontVariant: ['tabular-nums'],
-    color: Colors.dark.textSecondary,
+    flex: 0.6,
+    textAlign: 'center',
+    fontWeight: '600',
+    color: Colors.dark.textPrimary,
+  },
+  roundTeams: {
+    gap: 10,
+  },
+  roundTeamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  roundTeamLabel: {
+    flex: 1.2,
+    color: Colors.dark.textPrimary,
   },
   roundPositive: {
-    color: Colors.dark.positive,
+    color: Colors.dark.accentSoft,
   },
   roundNegative: {
     color: Colors.dark.negative,
   },
-  teamWinner: {
-    backgroundColor: 'rgba(224, 49, 58, 0.18)',
+  roundEmptyState: {
+    borderRadius: 20,
+    padding: 20,
+    backgroundColor: '#1E1A29',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(224, 49, 58, 0.48)',
+    borderColor: Colors.dark.border,
+    gap: 6,
   },
-  teamLoser: {
-    backgroundColor: '#1D1A27',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.05)',
+  roundEmptyTitle: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '600',
+  },
+  roundEmptySubtitle: {
+    color: Colors.dark.textSecondary,
   },
 });

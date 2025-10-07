@@ -25,6 +25,21 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Authentication setup
+
+The Supabase-backed auth flow expects two public environment variables to be available when the Metro bundler runs. Copy `secrets.example.env` to `.env` (or export the variables manually) and provide the values from your Supabase project:
+
+```bash
+EXPO_PUBLIC_SUPABASE_URL="https://your-project.supabase.co"
+EXPO_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
+```
+
+Restart Expo after changing these values so the runtime picks them up.
+
+### Database migrations
+
+Profiles are created automatically by a Postgres trigger defined in `supabase/migrations/20250112_create_profiles.sql`. Apply the migration to your Supabase instance (e.g. with the Supabase CLI `supabase db push`) before testing authentication so profile inserts succeed. The app will also upsert the profile client-side as a safety net.
+
 ## Get a fresh project
 
 When you're ready, run:

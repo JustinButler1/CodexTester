@@ -1,5 +1,13 @@
-import { Link } from 'expo-router';
-import { Pressable, PressableProps, StyleSheet, Text, View } from 'react-native';
+import { Link, type Href } from 'expo-router';
+import {
+  Pressable,
+  PressableProps,
+  StyleProp,
+  StyleSheet,
+  Text,
+  View,
+  type ViewStyle,
+} from 'react-native';
 
 import { Colors } from '@/constants/theme';
 
@@ -11,7 +19,7 @@ type GameOptionCardProps = {
   tagLabel?: string;
   tone?: GameOptionCardTone;
   disabled?: boolean;
-  href?: string;
+  href?: Href;
 } & Omit<PressableProps, 'children'>;
 
 export function GameOptionCard({
@@ -33,9 +41,21 @@ export function GameOptionCard({
       </View>
     ) : null;
 
+  const withBaseStyle = (value?: StyleProp<ViewStyle>) => {
+    if (value == null) {
+      return styles.cardPressable;
+    }
+    return StyleSheet.flatten([styles.cardPressable, value]) as ViewStyle;
+  };
+
+  const pressableStyle: PressableProps['style'] =
+    typeof style === 'function'
+      ? (state) => withBaseStyle(style(state) as StyleProp<ViewStyle>)
+      : withBaseStyle(style as StyleProp<ViewStyle>);
+
   const pressable = (
     <Pressable
-      style={[styles.cardPressable, style]}
+      style={pressableStyle}
       disabled={disabled}
       {...pressableProps}>
       <View style={[styles.card, toneStyle, disabled && styles.disabledCard]}>
