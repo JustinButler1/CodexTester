@@ -494,7 +494,7 @@ export default function SpadesGamesScreen() {
 
       <View pointerEvents="box-none" style={styles.fabArena}>
         <Link href="/games/spades/add" asChild>
-          <Pressable style={[styles.fabButton, { transform: [{ translateY: fabShift }] }]}>
+          <Pressable style={styles.fabButton}>
             <Text style={styles.fabText}>Add Spades Game</Text>
           </Pressable>
         </Link>
