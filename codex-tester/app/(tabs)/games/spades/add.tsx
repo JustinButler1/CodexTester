@@ -79,6 +79,9 @@ export default function LiveSpadesGameScreen() {
   const [teamScannerHandled, setTeamScannerHandled] = React.useState(false);
   const [teamScannerError, setTeamScannerError] = React.useState<string | null>(null);
   const scannedTeamRef = React.useRef<SpadesTeam | null>(null);
+  const teamOneRef = React.useRef<SpadesTeam | null>(null);
+  const teamTwoRef = React.useRef<SpadesTeam | null>(null);
+  const teamTwoSourceRef = React.useRef<'scan' | null>(null);
 
   const loadTeams = React.useCallback(async () => {
     if (!user) {
@@ -98,10 +101,10 @@ export default function LiveSpadesGameScreen() {
 
       const teamMap = new Map(teams.map((team) => [team.id, team]));
       
-      // Preserve current team states
-      const currentTeamOne = teamOne;
-      const currentTeamTwo = teamTwo;
-      const currentTeamTwoSource = teamTwoSource;
+      // Preserve current team states via refs (avoid stale closures)
+      const currentTeamOne = teamOneRef.current;
+      const currentTeamTwo = teamTwoRef.current;
+      const currentTeamTwoSource = teamTwoSourceRef.current;
       
       const nextTeamOne =
         (currentTeamOne && teamMap.get(currentTeamOne.id)) ?? teams[0] ?? null;
@@ -133,6 +136,19 @@ export default function LiveSpadesGameScreen() {
       setLoadingTeams(false);
     }
   }, [user]);
+
+  // Keep refs in sync with state
+  React.useEffect(() => {
+    teamOneRef.current = teamOne;
+  }, [teamOne]);
+
+  React.useEffect(() => {
+    teamTwoRef.current = teamTwo;
+  }, [teamTwo]);
+
+  React.useEffect(() => {
+    teamTwoSourceRef.current = teamTwoSource;
+  }, [teamTwoSource]);
 
   React.useEffect(() => {
     loadTeams();
@@ -277,7 +293,7 @@ export default function LiveSpadesGameScreen() {
       setHandDraft(initialHandDraft);
       setTeamPickerSlot(null);
     },
-    [teamTwo?.id],
+    [teamPickerSlot, teamTwo?.id],
   );
 
   const handleGoalChange = React.useCallback((value: string) => {
