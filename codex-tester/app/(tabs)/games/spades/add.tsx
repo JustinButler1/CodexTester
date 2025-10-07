@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { BarcodeScanningResult, useCameraPermissions } from 'expo-camera';
+import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import React from 'react';
@@ -78,6 +78,7 @@ export default function LiveSpadesGameScreen() {
   const [teamScannerRequesting, setTeamScannerRequesting] = React.useState(false);
   const [teamScannerHandled, setTeamScannerHandled] = React.useState(false);
   const [teamScannerError, setTeamScannerError] = React.useState<string | null>(null);
+  const scannedTeamRef = React.useRef<SpadesTeam | null>(null);
 
   const loadTeams = React.useCallback(async () => {
     if (!user) {
@@ -96,19 +97,34 @@ export default function LiveSpadesGameScreen() {
       setAvailableTeams(teams);
 
       const teamMap = new Map(teams.map((team) => [team.id, team]));
+      
+      // Preserve current team states
+      const currentTeamOne = teamOne;
+      const currentTeamTwo = teamTwo;
+      const currentTeamTwoSource = teamTwoSource;
+      
       const nextTeamOne =
-        (teamOne && teamMap.get(teamOne.id)) ?? teams[0] ?? null;
+        (currentTeamOne && teamMap.get(currentTeamOne.id)) ?? teams[0] ?? null;
       setTeamOne(nextTeamOne ?? null);
 
-      const keepTeamTwo =
-        teamTwoSource === 'scan' && teamTwo && teamTwo.id !== nextTeamOne?.id;
+      // Check if we have a scanned team that should be preserved
+      const scannedTeam = scannedTeamRef.current;
+      const shouldKeepTeamTwo = 
+        (currentTeamTwoSource === 'scan' && currentTeamTwo && currentTeamTwo.id !== nextTeamOne?.id) ||
+        (scannedTeam && scannedTeam.id !== nextTeamOne?.id);
 
-      if (keepTeamTwo) {
-        setTeamTwo(teamTwo);
-        setTeamTwoSource('scan');
-      } else {
+      if (shouldKeepTeamTwo) {
+        // Keep the scanned team (prefer the ref if available)
+        const teamToKeep = scannedTeam || currentTeamTwo;
+        if (teamToKeep) {
+          setTeamTwo(teamToKeep);
+          setTeamTwoSource('scan');
+        }
+      } else if (currentTeamTwoSource !== 'scan') {
+        // Only clear if it wasn't a scanned team
         setTeamTwo(null);
         setTeamTwoSource(null);
+        scannedTeamRef.current = null;
       }
     } catch (error) {
       console.error('Failed to load teams', error);
@@ -116,7 +132,7 @@ export default function LiveSpadesGameScreen() {
     } finally {
       setLoadingTeams(false);
     }
-  }, [teamOne, teamTwo, teamTwoSource, user]);
+  }, [user]);
 
   React.useEffect(() => {
     loadTeams();
@@ -213,11 +229,17 @@ export default function LiveSpadesGameScreen() {
           return;
         }
 
+        // Set the team state immediately and ensure it persists
+        scannedTeamRef.current = fetchedTeam;
         setTeamTwo(fetchedTeam);
         setTeamTwoSource('scan');
         setRounds([]);
         setHandDraft(initialHandDraft);
-        handleCloseTeamScanner();
+        
+        // Close scanner after a brief delay to ensure state is set
+        setTimeout(() => {
+          handleCloseTeamScanner();
+        }, 100);
       } catch (error) {
         console.error('Failed to parse team QR code', error);
         setTeamScannerError('Could not read that QR code. Try again.');
@@ -248,6 +270,7 @@ export default function LiveSpadesGameScreen() {
         if (teamTwo?.id === team.id) {
           setTeamTwo(null);
           setTeamTwoSource(null);
+          scannedTeamRef.current = null;
         }
       }
       setRounds([]);
@@ -706,6 +729,36 @@ export default function LiveSpadesGameScreen() {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      <Modal
+        visible={teamScannerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseTeamScanner}>
+        <View style={styles.scannerBackdrop}>
+          <View style={styles.scannerCard}>
+            <Text style={styles.scannerTitle}>Scan Team QR</Text>
+            <Text style={styles.scannerSubtitle}>Align the team QR code within the frame.</Text>
+            <View style={styles.scannerFrame}>
+              {teamScannerPermission && !teamScannerPermission.granted ? (
+                <Text style={styles.scannerError}>
+                  Camera permission denied. Enable access in system settings to scan team QR codes.
+                </Text>
+              ) : (
+                <CameraView
+                  style={styles.cameraView}
+                  facing="back"
+                  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                  onBarcodeScanned={handleTeamQrScanned}
+                />
+              )}
+            </View>
+            <TouchableOpacity style={styles.scannerCloseButton} onPress={handleCloseTeamScanner}>
+              <Text style={styles.scannerCloseLabel}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1132,6 +1185,67 @@ const styles = StyleSheet.create({
   },
   scanButtonLabel: {
     color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  scannerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(7, 5, 12, 0.86)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  scannerCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 28,
+    padding: 24,
+    backgroundColor: Colors.dark.surfaceElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+    gap: 18,
+    alignItems: 'center',
+  },
+  scannerTitle: {
+    color: Colors.dark.textPrimary,
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  scannerSubtitle: {
+    color: Colors.dark.textSecondary,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  scannerFrame: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#14111D',
+    position: 'relative',
+  },
+  cameraView: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  scannerError: {
+    color: Colors.dark.textSecondary,
+    textAlign: 'center',
+    padding: 16,
+  },
+  scannerCloseButton: {
+    paddingHorizontal: 26,
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: '#221E31',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+  },
+  scannerCloseLabel: {
+    color: Colors.dark.textPrimary,
     fontWeight: '600',
   },
 });
