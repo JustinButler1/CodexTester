@@ -28,6 +28,9 @@ import {
   createTeamForUser,
   fetchSpadesMatchSummaries,
   fetchTeamsForUser,
+  convertGuestToRegistered,
+  updateTeamName,
+  archiveTeam,
 } from '@/src/shared/spades-store';
 
 const BUTTON_CLEARANCE = 132;
@@ -141,9 +144,21 @@ export default function SpadesGamesScreen() {
   const [isScannerVisible, setScannerVisible] = React.useState(false);
   const [isRequestingScanner, setRequestingScanner] = React.useState(false);
   const [hasScannedDuringSession, setHasScannedDuringSession] = React.useState(false);
+  const [scannerMode, setScannerMode] = React.useState<'create-partner' | 'convert-member' | null>(null);
+  const [pendingConvertGuestId, setPendingConvertGuestId] = React.useState<string | null>(null);
+  const [selectedTeam, setSelectedTeam] = React.useState<SpadesTeam | null>(null);
+  const [isTeamManageModalVisible, setTeamManageModalVisible] = React.useState(false);
+  const [manageTeamName, setManageTeamName] = React.useState('');
+  const [isUpdatingTeam, setIsUpdatingTeam] = React.useState(false);
+  const [isArchivingTeam, setIsArchivingTeam] = React.useState(false);
+  const [isConvertingMember, setIsConvertingMember] = React.useState(false);
+  const [manageError, setManageError] = React.useState<string | null>(null);
   const [fabShift, setFabShift] = React.useState(0);
   const metricsRef = React.useRef({ content: 0, layout: 0, offset: 0 });
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  const manageTeamNameTrimmed = manageTeamName.trim();
+  const manageNameChanged = selectedTeam ? manageTeamNameTrimmed !== selectedTeam.label : false;
 
   const currentUserId = user?.id ?? '';
   const currentUserName = user ? deriveDisplayName(user) : 'Player';
@@ -168,6 +183,12 @@ export default function SpadesGamesScreen() {
           fetchSpadesMatchSummaries(user.id),
         ]);
         setTeams(teamList);
+        setSelectedTeam((prev) => {
+          if (!prev) {
+            return null;
+          }
+          return teamList.find((team) => team.id === prev.id) ?? null;
+        });
         setSummaries(matchList);
       } catch (error) {
         console.error('Failed to load spades data', error);
@@ -195,6 +216,12 @@ export default function SpadesGamesScreen() {
       setHasScannedDuringSession(false);
     }
   }, [isScannerVisible]);
+
+  React.useEffect(() => {
+    if (isTeamManageModalVisible && !selectedTeam) {
+      setTeamManageModalVisible(false);
+    }
+  }, [isTeamManageModalVisible, selectedTeam]);
 
   const onRefresh = React.useCallback(async () => {
     if (!user) {
@@ -241,6 +268,8 @@ export default function SpadesGamesScreen() {
     setPartnerName('');
     setScannedPartnerId('');
     setScannedPartnerName('');
+    setScannerMode(null);
+    setPendingConvertGuestId(null);
   }, []);
 
   const openTeamModal = React.useCallback(() => {
@@ -268,40 +297,60 @@ export default function SpadesGamesScreen() {
     setScannedPartnerName('');
   }, []);
 
-  const handleOpenScanner = React.useCallback(async () => {
-    if (useGuestPartner) {
-      return;
-    }
-    if (isRequestingScanner) {
-      return;
-    }
+  const handleOpenScanner = React.useCallback(
+    async (mode: 'create-partner' | 'convert-member', guestId?: string) => {
+      if (mode === 'create-partner' && useGuestPartner) {
+        return;
+      }
+      if (mode === 'convert-member' && (!selectedTeam || !guestId)) {
+        return;
+      }
+      if (isRequestingScanner) {
+        return;
+      }
 
-    if (cameraPermission?.granted) {
-      setHasScannedDuringSession(false);
-      setScannerVisible(true);
-      return;
-    }
+      setScannerMode(mode);
+      if (mode === 'convert-member') {
+        setPendingConvertGuestId(guestId ?? null);
+      } else {
+        setPendingConvertGuestId(null);
+      }
 
-    setRequestingScanner(true);
-    try {
-      const permissionResult = await requestCameraPermission?.();
-      const granted = permissionResult?.granted ?? cameraPermission?.granted ?? false;
-      if (granted) {
+      if (cameraPermission?.granted) {
         setHasScannedDuringSession(false);
         setScannerVisible(true);
-      } else {
-        Alert.alert('Camera permission needed', 'Allow camera access to scan teammate QR codes.');
+        return;
       }
-    } catch (error) {
-      console.error('Failed to request camera permission', error);
-      Alert.alert('Camera error', 'Could not access the camera. Try again later.');
-    } finally {
-      setRequestingScanner(false);
-    }
-  }, [cameraPermission?.granted, isRequestingScanner, requestCameraPermission, useGuestPartner]);
+
+      setRequestingScanner(true);
+      try {
+        const permissionResult = await requestCameraPermission?.();
+        const granted = permissionResult?.granted ?? cameraPermission?.granted ?? false;
+        if (granted) {
+          setHasScannedDuringSession(false);
+          setScannerVisible(true);
+        } else {
+          Alert.alert('Camera permission needed', 'Allow camera access to scan teammate QR codes.');
+          setScannerMode(null);
+          setPendingConvertGuestId(null);
+        }
+      } catch (error) {
+        console.error('Failed to request camera permission', error);
+        Alert.alert('Camera error', 'Could not access the camera. Try again later.');
+        setScannerMode(null);
+        setPendingConvertGuestId(null);
+      } finally {
+        setRequestingScanner(false);
+      }
+    },
+    [cameraPermission?.granted, isRequestingScanner, requestCameraPermission, selectedTeam, useGuestPartner],
+  );
 
   const handleCloseScanner = React.useCallback(() => {
     setScannerVisible(false);
+    setScannerMode(null);
+    setPendingConvertGuestId(null);
+    setHasScannedDuringSession(false);
   }, []);
 
   const handleBarCodeScanned = React.useCallback(
@@ -326,18 +375,131 @@ export default function SpadesGamesScreen() {
           setHasScannedDuringSession(false);
           return;
         }
-        setScannedPartnerId(scannedId);
-        setScannedPartnerName(scannedName ?? 'Scanned Player');
-        setUseGuestPartner(false);
+
+        if (scannerMode === 'create-partner') {
+          setScannedPartnerId(scannedId);
+          setScannedPartnerName(scannedName ?? 'Scanned Player');
+          setUseGuestPartner(false);
+          setScannerVisible(false);
+          setScannerMode(null);
+          setPendingConvertGuestId(null);
+          return;
+        }
+
+        if (scannerMode === 'convert-member') {
+          if (!selectedTeam || !pendingConvertGuestId) {
+            setHasScannedDuringSession(false);
         setScannerVisible(false);
+        setScannerMode(null);
+        setPendingConvertGuestId(null);
+            return;
+          }
+
+          const existingMember = selectedTeam.members.find(
+            (member) => member.type === 'user' && member.userId === scannedId,
+          );
+          if (existingMember) {
+            Alert.alert('Already on team', `${existingMember.displayName} is already part of this team.`);
+            setHasScannedDuringSession(false);
+            return;
+          }
+
+          setIsConvertingMember(true);
+          convertGuestToRegistered({
+            teamId: selectedTeam.id,
+            guestId: pendingConvertGuestId,
+            newUserId: scannedId,
+          })
+            .then(async () => {
+              await loadData(false);
+              const nameLabel = scannedName ?? 'Scanned Player';
+              Alert.alert('Teammate updated', `${nameLabel} is now on this team.`);
+            })
+            .catch((error) => {
+              console.error('Failed to convert guest teammate', error);
+              Alert.alert('Unable to update team', 'There was a problem updating the team member.');
+              setHasScannedDuringSession(false);
+            })
+            .finally(() => {
+              setIsConvertingMember(false);
+              setScannerVisible(false);
+              setScannerMode(null);
+              setPendingConvertGuestId(null);
+              setHasScannedDuringSession(false);
+            });
+        }
       } catch (error) {
         console.error('Failed to parse scanned QR', error);
         Alert.alert('Scan failed', 'Could not read that QR code. Try again.');
         setHasScannedDuringSession(false);
       }
     },
-    [hasScannedDuringSession],
+    [hasScannedDuringSession, loadData, pendingConvertGuestId, scannerMode, selectedTeam],
   );
+
+  const handleOpenManageTeam = React.useCallback((team: SpadesTeam) => {
+    setSelectedTeam(team);
+    setManageTeamName(team.label);
+    setManageError(null);
+    setTeamManageModalVisible(true);
+  }, []);
+
+  const handleCloseManageModal = React.useCallback(() => {
+    setTeamManageModalVisible(false);
+    setSelectedTeam(null);
+    setManageTeamName('');
+    setManageError(null);
+    setPendingConvertGuestId(null);
+    setScannerMode(null);
+    setScannerVisible(false);
+    setIsConvertingMember(false);
+    setIsArchivingTeam(false);
+    setIsUpdatingTeam(false);
+  }, []);
+
+  const handleSaveManagedTeam = React.useCallback(async () => {
+    if (!selectedTeam || !user) {
+      return;
+    }
+    const trimmedName = manageTeamNameTrimmed;
+    if (!trimmedName) {
+      setManageError('Team name is required.');
+      return;
+    }
+    if (trimmedName === selectedTeam.label) {
+      handleCloseManageModal();
+      return;
+    }
+    setIsUpdatingTeam(true);
+    setManageError(null);
+    try {
+      await updateTeamName({ teamId: selectedTeam.id, userId: user.id, teamName: trimmedName });
+      await loadData(false);
+      handleCloseManageModal();
+    } catch (error) {
+      console.error('Failed to update team name', error);
+      setManageError('Could not update team name. Try again.');
+    } finally {
+      setIsUpdatingTeam(false);
+    }
+  }, [handleCloseManageModal, loadData, manageTeamNameTrimmed, selectedTeam, user]);
+
+  const handleArchiveSelectedTeam = React.useCallback(async () => {
+    if (!selectedTeam || !user) {
+      return;
+    }
+    setIsArchivingTeam(true);
+    setManageError(null);
+    try {
+      await archiveTeam(selectedTeam.id, user.id);
+      await loadData(false);
+      handleCloseManageModal();
+    } catch (error) {
+      console.error('Failed to archive team', error);
+      setManageError('Unable to archive this team.');
+      setIsArchivingTeam(false);
+    }
+  }, [handleCloseManageModal, loadData, selectedTeam, user]);
 
   const handleConfirmTeam = React.useCallback(async () => {
     if (!user) {
@@ -425,12 +587,16 @@ export default function SpadesGamesScreen() {
               <View style={styles.teamList}>
                 <Text style={styles.teamListTitle}>Your Teams</Text>
                 {teams.map((team) => (
-                  <View key={team.id} style={styles.teamCard}>
+                  <Pressable
+                    key={team.id}
+                    style={({ pressed }) => [styles.teamCard, pressed && styles.teamCardPressed]}
+                    onPress={() => handleOpenManageTeam(team)}
+                  >
                     <Text style={styles.teamName}>{team.label}</Text>
                     <Text style={styles.teamPlayers}>
                       {team.members.map((member) => member.displayName).join(' · ')}
                     </Text>
-                  </View>
+                  </Pressable>
                 ))}
               </View>
             ) : (
@@ -535,7 +701,7 @@ export default function SpadesGamesScreen() {
                     <TouchableOpacity
                       style={styles.scanButton}
                       activeOpacity={0.85}
-                      onPress={handleOpenScanner}
+                      onPress={() => handleOpenScanner('create-partner')}
                       disabled={isRequestingScanner}>
                       <Text style={styles.scanButtonLabel}>
                         {isRequestingScanner ? 'Opening Camera…' : 'Scan Profile QR'}
@@ -563,6 +729,86 @@ export default function SpadesGamesScreen() {
                     </Text>
                   </Pressable>
                 </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal
+        visible={isTeamManageModalVisible && !!selectedTeam}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseManageModal}
+        presentationStyle="overFullScreen">
+        <TouchableWithoutFeedback onPress={handleCloseManageModal}>
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={styles.manageSheet}>
+                <Text style={styles.manageTitle}>Team Details</Text>
+                {manageError ? <Text style={styles.manageError}>{manageError}</Text> : null}
+
+                <View style={styles.modalField}>
+                  <Text style={styles.modalLabel}>Team Name</Text>
+                  <TextInput
+                    value={manageTeamName}
+                    onChangeText={setManageTeamName}
+                    placeholder="Team name"
+                    placeholderTextColor="rgba(255,255,255,0.4)"
+                    style={styles.modalInput}
+                  />
+                </View>
+
+                <View style={styles.manageMembersList}>
+                  <Text style={styles.sectionLabel}>Roster</Text>
+                  {selectedTeam?.members.map((member) => (
+                    <View key={`${selectedTeam.id}-${member.slot}`} style={styles.manageMemberRow}>
+                      <View style={styles.manageMemberHeader}>
+                        <Text style={styles.manageMemberName}>{member.displayName}</Text>
+                        <Text style={styles.manageMemberType}>
+                          {member.type === 'user' ? 'Registered User' : 'Guest Player'}
+                        </Text>
+                      </View>
+                      {member.type === 'guest' && member.guestId ? (
+                        <TouchableOpacity
+                          style={[styles.convertButton, (isConvertingMember || isRequestingScanner) && styles.actionDisabled]}
+                          activeOpacity={0.85}
+                          onPress={() => handleOpenScanner('convert-member', member.guestId)}
+                          disabled={isConvertingMember || isRequestingScanner}>
+                          <Text style={styles.convertButtonLabel}>
+                            {isConvertingMember ? 'Updating…' : 'Replace with Registered Player'}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ))}
+                  {selectedTeam && selectedTeam.members.every((member) => member.type === 'user') ? (
+                    <Text style={styles.helperText}>Both players are registered. Members can no longer be changed.</Text>
+                  ) : null}
+                </View>
+
+                <View style={styles.manageActions}>
+                  <Pressable style={styles.manageActionButton} onPress={handleCloseManageModal}>
+                    <Text style={styles.manageActionLabel}>Close</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.manageActionButton, styles.manageActionPrimary, (isUpdatingTeam || !manageNameChanged) && styles.actionDisabled]}
+                    onPress={handleSaveManagedTeam}
+                    disabled={isUpdatingTeam || !manageNameChanged}>
+                    <Text style={[styles.manageActionLabel, styles.modalButtonConfirmText]}>
+                      {isUpdatingTeam ? 'Saving…' : 'Save'}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <Pressable
+                  style={[styles.archiveButton, isArchivingTeam && styles.actionDisabled]}
+                  onPress={handleArchiveSelectedTeam}
+                  disabled={isArchivingTeam}>
+                  <Text style={styles.archiveButtonLabel}>
+                    {isArchivingTeam ? 'Archiving…' : 'Archive Team'}
+                  </Text>
+                </Pressable>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -672,6 +918,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
+  sectionLabel: {
+    color: Colors.dark.textSecondary,
+    fontSize: 13,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
   teamCard: {
     borderRadius: 20,
     paddingVertical: 14,
@@ -680,6 +932,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.dark.border,
     backgroundColor: Colors.dark.surface,
     gap: 6,
+  },
+  teamCardPressed: {
+    opacity: 0.85,
   },
   teamName: {
     color: Colors.dark.textPrimary,
@@ -1007,12 +1262,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   scannerFrame: {
-    flex: 1,
+    width: '100%',
     aspectRatio: 1,
     borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: '#14111D',
-    position: 'absolute',
+    position: 'relative',
   },
   cameraView: {
     position: 'absolute',
@@ -1037,5 +1292,103 @@ const styles = StyleSheet.create({
   scannerCloseLabel: {
     color: Colors.dark.textPrimary,
     fontWeight: '600',
+  },
+  manageSheet: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 28,
+    padding: 24,
+    backgroundColor: Colors.dark.surfaceElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+    gap: 18,
+  },
+  manageTitle: {
+    color: Colors.dark.textPrimary,
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  manageError: {
+    color: Colors.dark.negative,
+    textAlign: 'center',
+    fontSize: 13,
+  },
+  manageMembersList: {
+    gap: 12,
+  },
+  manageMemberRow: {
+    borderRadius: 16,
+    padding: 14,
+    backgroundColor: Colors.dark.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+    gap: 8,
+  },
+  manageMemberHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  manageMemberName: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '600',
+  },
+  manageMemberType: {
+    color: Colors.dark.textSecondary,
+    fontSize: 12,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  convertButton: {
+    marginTop: 6,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: Colors.dark.accent,
+  },
+  convertButtonLabel: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    letterSpacing: 0.4,
+  },
+  actionDisabled: {
+    opacity: 0.5,
+  },
+  manageActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  manageActionButton: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#241F32',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+  },
+  manageActionPrimary: {
+    backgroundColor: Colors.dark.accent,
+  },
+  manageActionLabel: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+  },
+  archiveButton: {
+    marginTop: 8,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#2E1A21',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+  },
+  archiveButtonLabel: {
+    color: Colors.dark.negative,
+    fontWeight: '600',
+    letterSpacing: 0.4,
   },
 });

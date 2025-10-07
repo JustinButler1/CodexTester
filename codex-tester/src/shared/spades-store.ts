@@ -13,6 +13,7 @@ export type SpadesTeam = {
   label: string;
   createdAt: string | null;
   members: SpadesTeamMember[];
+  archived: boolean;
 };
 
 export type SpadesMatchSummary = {
@@ -54,10 +55,20 @@ export type SpadesGameDetail = {
   rounds: SpadesRound[];
 };
 
+export type GameRecordSummary = {
+  key: string;
+  label: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  games: number;
+};
+
 type TeamRow = {
   id: string;
   name: string | null;
   created_at: string | null;
+  archived: boolean | null;
 };
 
 type TeamMemberRow = {
@@ -213,6 +224,7 @@ const hydrateTeams = async (teamRows: TeamRow[]): Promise<SpadesTeam[]> => {
       label,
       createdAt: team.created_at ?? null,
       members: membersWithNames,
+      archived: Boolean(team.archived),
     };
   });
 };
@@ -220,8 +232,9 @@ const hydrateTeams = async (teamRows: TeamRow[]): Promise<SpadesTeam[]> => {
 export async function fetchTeamsForUser(userId: string): Promise<SpadesTeam[]> {
   const { data: teamRows, error } = await supabase
     .from('teams')
-    .select('id, name, created_at')
+    .select('id, name, created_at, archived')
     .eq('created_by', userId)
+    .eq('archived', false)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -254,8 +267,9 @@ export async function createTeamForUser(params: CreateTeamParams): Promise<Spade
     .insert({
       name: teamName.trim(),
       created_by: createdBy,
+      archived: false,
     })
-    .select('id, name, created_at')
+    .select('id, name, created_at, archived')
     .single();
 
   if (teamError || !teamRow) {
@@ -317,6 +331,151 @@ export async function createTeamForUser(params: CreateTeamParams): Promise<Spade
     await cleanupOnError();
     throw error;
   }
+}
+
+type UpdateTeamNameParams = {
+  teamId: string;
+  userId: string;
+  teamName: string;
+};
+
+export async function updateTeamName({ teamId, userId, teamName }: UpdateTeamNameParams) {
+  const trimmed = teamName.trim();
+  if (!trimmed) {
+    throw new Error('Team name is required.');
+  }
+  const { error } = await supabase
+    .from('teams')
+    .update({ name: trimmed })
+    .eq('id', teamId)
+    .eq('created_by', userId)
+    .eq('archived', false);
+
+  if (error) {
+    throw error;
+  }
+}
+
+type ConvertGuestParams = {
+  teamId: string;
+  guestId: string;
+  newUserId: string;
+};
+
+export async function convertGuestToRegistered({ teamId, guestId, newUserId }: ConvertGuestParams) {
+  const { data: guestMember, error: memberError } = await supabase
+    .from('team_members')
+    .select('slot')
+    .eq('team_id', teamId)
+    .eq('guest_id', guestId)
+    .maybeSingle();
+
+  if (memberError) {
+    throw memberError;
+  }
+
+  if (!guestMember) {
+    throw new Error('Guest player not found on this team.');
+  }
+
+  const { data: existingUserMember, error: checkError } = await supabase
+    .from('team_members')
+    .select('team_id')
+    .eq('team_id', teamId)
+    .eq('user_id', newUserId)
+    .maybeSingle();
+
+  if (checkError) {
+    throw checkError;
+  }
+
+  if (existingUserMember) {
+    throw new Error('That player is already on this team.');
+  }
+
+  const { error: updateError } = await supabase
+    .from('team_members')
+    .update({ guest_id: null, user_id: newUserId })
+    .eq('team_id', teamId)
+    .eq('slot', guestMember.slot);
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  const { error: deleteError } = await supabase.from('team_guests').delete().eq('id', guestId);
+  if (deleteError) {
+    throw deleteError;
+  }
+}
+
+export async function archiveTeam(teamId: string, userId: string) {
+  const { error } = await supabase
+    .from('teams')
+    .update({ archived: true })
+    .eq('id', teamId)
+    .eq('created_by', userId)
+    .eq('archived', false);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function unarchiveTeam(teamId: string, userId: string) {
+  const { error } = await supabase
+    .from('teams')
+    .update({ archived: false })
+    .eq('id', teamId)
+    .eq('created_by', userId)
+    .eq('archived', true);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function fetchArchivedTeamsForUser(userId: string): Promise<SpadesTeam[]> {
+  const { data: teamRows, error } = await supabase
+    .from('teams')
+    .select('id, name, created_at, archived')
+    .eq('created_by', userId)
+    .eq('archived', true)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return hydrateTeams(((teamRows as TeamRow[] | null) ?? []));
+}
+
+export async function fetchProfileGameRecords(userId: string): Promise<GameRecordSummary[]> {
+  const { data, error } = await supabase
+    .from('player_stats_users')
+    .select('games, wins, losses, ties')
+    .eq('user_id', userId)
+    .maybeSingle<{ games: number; wins: number; losses: number; ties: number }>();
+
+  if (error) {
+    throw error;
+  }
+
+  const games = data?.games ?? 0;
+  const wins = data?.wins ?? 0;
+  const losses = data?.losses ?? 0;
+  const ties = data?.ties ?? games - wins - losses;
+
+  return [
+    {
+      key: 'spades',
+      label: 'Spades',
+      wins,
+      losses,
+      ties,
+      games,
+    },
+  ];
 }
 
 export async function fetchSpadesMatchSummaries(userId: string): Promise<SpadesMatchSummary[]> {
@@ -466,15 +625,21 @@ type CreateSpadesGameParams = {
   team2Id: string;
   goalScore: number;
   rounds: SpadesRound[];
+  team1Members: SpadesTeamMember[];
+  team2Members: SpadesTeamMember[];
   startedAt?: Date;
   endedAt?: Date | null;
 };
 
 export async function createSpadesGame(params: CreateSpadesGameParams): Promise<string> {
-  const { createdBy, team1Id, team2Id, goalScore, rounds, startedAt, endedAt } = params;
+  const { createdBy, team1Id, team2Id, goalScore, rounds, team1Members, team2Members, startedAt, endedAt } = params;
 
   const startedAtValue = startedAt ?? new Date();
   const endedAtValue = endedAt ?? new Date();
+
+  if (rounds.length === 0) {
+    throw new Error('At least one round is required to record a game.');
+  }
 
   const { data: gameRow, error: gameError } = await supabase
     .from('spades_games')
@@ -483,7 +648,7 @@ export async function createSpadesGame(params: CreateSpadesGameParams): Promise<
       team1_id: team1Id,
       team2_id: team2Id,
       goal_score: goalScore,
-      status: 'completed',
+      status: 'in_progress',
       started_at: startedAtValue.toISOString(),
       ended_at: endedAtValue.toISOString(),
     })
@@ -496,9 +661,32 @@ export async function createSpadesGame(params: CreateSpadesGameParams): Promise<
 
   const cleanupOnError = async () => {
     await supabase.from('spades_games').delete().eq('id', gameRow.id);
+    await supabase.from('spades_game_team_members').delete().eq('game_id', gameRow.id);
   };
 
   try {
+    const memberSnapshots = [
+      ...team1Members.map((member) => ({
+        game_id: gameRow.id,
+        team_id: team1Id,
+        slot: member.slot,
+        user_id: member.type === 'user' ? member.userId ?? null : null,
+        guest_id: member.type === 'guest' ? member.guestId ?? null : null,
+      })),
+      ...team2Members.map((member) => ({
+        game_id: gameRow.id,
+        team_id: team2Id,
+        slot: member.slot,
+        user_id: member.type === 'user' ? member.userId ?? null : null,
+        guest_id: member.type === 'guest' ? member.guestId ?? null : null,
+      })),
+    ];
+
+    const { error: snapshotError } = await supabase.from('spades_game_team_members').insert(memberSnapshots);
+    if (snapshotError) {
+      throw snapshotError;
+    }
+
     const handPayloads: CreateHandPayload[] = rounds.map((round) => {
       const teamOneEntry = round.teamSummaries.find((entry) => entry.teamId === team1Id);
       const teamTwoEntry = round.teamSummaries.find((entry) => entry.teamId === team2Id);
@@ -532,6 +720,14 @@ export async function createSpadesGame(params: CreateSpadesGameParams): Promise<
     const { error: handsError } = await supabase.from('spades_hands').insert(insertPayload);
     if (handsError) {
       throw handsError;
+    }
+
+    const { error: finishError } = await supabase.rpc('finish_spades_game', {
+      p_game_id: gameRow.id,
+    });
+
+    if (finishError) {
+      throw finishError;
     }
 
     return gameRow.id;

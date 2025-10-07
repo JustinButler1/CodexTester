@@ -11,7 +11,8 @@ create table if not exists public.teams (
   id uuid primary key default gen_random_uuid(),
   name text,
   created_by uuid not null references profiles(user_id) on delete restrict,
-  created_at timestamptz default timezone('utc', now())
+  created_at timestamptz default timezone('utc', now()),
+  archived boolean not null default false
 );
 
 create table if not exists public.team_guests (
@@ -60,6 +61,57 @@ create table if not exists public.spades_hands (
   unique (game_id, hand_no)
 );
 
+-- Snapshot of who played in a specific game
+create table if not exists public.spades_game_team_members (
+  game_id uuid not null references spades_games(id) on delete cascade,
+  team_id uuid not null references teams(id) on delete cascade,
+  slot smallint not null check (slot in (1,2)),
+  user_id uuid references profiles(user_id) on delete cascade,
+  guest_id uuid references team_guests(id) on delete cascade,
+  check ((user_id is not null) <> (guest_id is not null)),
+  primary key (game_id, team_id, slot)
+);
+
+-- Immutable outcome rows per finished game
+create table if not exists public.spades_game_outcomes (
+  game_id uuid primary key references spades_games(id) on delete cascade,
+  team1_id uuid not null references teams(id) on delete restrict,
+  team2_id uuid not null references teams(id) on delete restrict,
+  team1_total int not null,
+  team2_total int not null,
+  winner_team_id uuid,
+  completed_at timestamptz not null default now()
+);
+
+create table if not exists public.team_stats (
+  team_id uuid primary key references teams(id) on delete cascade,
+  games int not null default 0,
+  wins int not null default 0,
+  losses int not null default 0,
+  ties int not null default 0,
+  points_for int not null default 0,
+  points_against int not null default 0,
+  last_game_at timestamptz
+);
+
+create table if not exists public.player_stats_users (
+  user_id uuid primary key references profiles(user_id) on delete cascade,
+  games int not null default 0,
+  wins int not null default 0,
+  losses int not null default 0,
+  ties int not null default 0,
+  last_game_at timestamptz
+);
+
+create table if not exists public.player_stats_guests (
+  guest_id uuid primary key references team_guests(id) on delete cascade,
+  games int not null default 0,
+  wins int not null default 0,
+  losses int not null default 0,
+  ties int not null default 0,
+  last_game_at timestamptz
+);
+
 create index if not exists spades_games_created_by_idx on public.spades_games (created_by, status, started_at desc);
 create index if not exists spades_hands_game_idx on public.spades_hands (game_id, hand_no);
 
@@ -89,18 +141,22 @@ with last_totals as (
   from spades_hands group by game_id
 )
 select g.id as game_id,
-       g.started_at::date as played_on,
+       coalesce(o.completed_at::date, g.started_at::date) as played_on,
        tl1.team_name as team1_name,
        tl2.team_name as team2_name,
-       lt.t1 as team1_total,
-       lt.t2 as team2_total,
+       coalesce(o.team1_total, lt.t1) as team1_total,
+       coalesce(o.team2_total, lt.t2) as team2_total,
        g.goal_score,
        g.status,
-       case when g.status='completed' and lt.t1>lt.t2 then 1
+       case when o.winner_team_id = g.team1_id then 1
+            when o.winner_team_id = g.team2_id then 2
+            when o.winner_team_id is null and o.game_id is not null then null
+            when g.status='completed' and lt.t1>lt.t2 then 1
             when g.status='completed' and lt.t2>lt.t1 then 2
             else null end as winner_team_no
 from spades_games g
 left join last_totals lt on lt.game_id = g.id
+left join spades_game_outcomes o on o.game_id = g.id
 left join v_team_label tl1 on tl1.team_id = g.team1_id
 left join v_team_label tl2 on tl2.team_id = g.team2_id;
 

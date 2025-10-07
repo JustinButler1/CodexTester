@@ -1,33 +1,13 @@
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import QRCode from 'react-native-qrcode-svg';
 
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/src/shared/auth-context';
-
-const DEFAULT_GAME_RECORDS = [
-  {
-    key: 'spades',
-    label: 'Spades',
-    wins: 128,
-    losses: 54,
-  },
-  {
-    key: 'chess',
-    label: 'Chess',
-    wins: 42,
-    losses: 38,
-  },
-];
-
-const computeRecord = (record: { wins: number; losses: number }) => {
-  const total = record.wins + record.losses;
-  const winRate = total ? Math.round((record.wins / total) * 100) : 0;
-  return { total, winRate };
-};
+import { GameRecordSummary, fetchProfileGameRecords } from '@/src/shared/spades-store';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -35,6 +15,9 @@ export default function ProfileScreen() {
   const { user, signOut } = useAuth();
   const [isSigningOut, setSigningOut] = React.useState(false);
   const [isQrVisible, setQrVisible] = React.useState(false);
+  const [gameRecords, setGameRecords] = React.useState<GameRecordSummary[]>([]);
+  const [loadingRecords, setLoadingRecords] = React.useState(true);
+  const [recordsError, setRecordsError] = React.useState<string | null>(null);
 
   const displayName = React.useMemo(() => {
     const metadataName = typeof user?.user_metadata?.full_name === 'string'
@@ -65,13 +48,37 @@ export default function ProfileScreen() {
     });
   }, [user, displayName]);
 
+  React.useEffect(() => {
+    if (!user) {
+      setGameRecords([]);
+      setLoadingRecords(false);
+      setRecordsError(null);
+      return;
+    }
+    setLoadingRecords(true);
+    setRecordsError(null);
+    fetchProfileGameRecords(user.id)
+      .then((records) => {
+        setGameRecords(records);
+      })
+      .catch((error) => {
+        console.error('Failed to load profile records', error);
+        setRecordsError('Unable to load records. Pull to refresh or try again later.');
+        setGameRecords([]);
+      })
+      .finally(() => {
+        setLoadingRecords(false);
+      });
+  }, [user]);
+
   const records = React.useMemo(
     () =>
-      DEFAULT_GAME_RECORDS.map((record) => ({
-        ...record,
-        ...computeRecord(record),
-      })),
-    [],
+      gameRecords.map((record): GameRecordSummary & { total: number; winRate: number } => {
+        const total = record.games ?? record.wins + record.losses + record.ties;
+        const winRate = total ? Math.round((record.wins / total) * 100) : 0;
+        return { ...record, total, winRate };
+      }),
+    [gameRecords],
   );
 
   const handleSignOut = React.useCallback(async () => {
@@ -101,7 +108,7 @@ export default function ProfileScreen() {
           <Text style={styles.name}>{displayName}</Text>
           <Text style={styles.identifier}>Email · {email}</Text>
           <Text style={styles.identifierMuted}>User ID · {identifier}</Text>
-          <Pressable style={styles.editButton}>
+          <Pressable style={styles.editButton} onPress={() => router.push('/settings')}>
             <Text style={styles.editButtonText}>Manage Account</Text>
           </Pressable>
           <TouchableOpacity
@@ -115,31 +122,50 @@ export default function ProfileScreen() {
 
         <View style={styles.recordsSection}>
           <Text style={styles.sectionTitle}>Game Records</Text>
-          <View style={styles.recordGrid}>
-            {records.map((record) => (
-              <View key={record.key} style={styles.recordCard}>
-                <Text style={styles.recordTitle}>{record.label}</Text>
-                <View style={styles.recordStatsRow}>
-                  <View style={styles.statBlock}>
-                    <Text style={styles.statValue}>{record.wins}</Text>
-                    <Text style={styles.statLabel}>Wins</Text>
-                  </View>
-                  <View style={styles.statBlock}>
-                    <Text style={styles.statValue}>{record.losses}</Text>
-                    <Text style={styles.statLabel}>Losses</Text>
-                  </View>
-                  <View style={styles.statBlock}>
-                    <Text style={styles.statValue}>{record.total}</Text>
-                    <Text style={styles.statLabel}>Games</Text>
-                  </View>
-                  <View style={styles.statBlock}>
-                    <Text style={styles.statValue}>{record.winRate}%</Text>
-                    <Text style={styles.statLabel}>Win %</Text>
+          {loadingRecords ? (
+            <View style={styles.recordsLoading}>
+              <ActivityIndicator color={Colors.dark.accent} />
+            </View>
+          ) : recordsError ? (
+            <Text style={styles.recordsError}>{recordsError}</Text>
+          ) : records.length === 0 || records.every((record) => record.total === 0) ? (
+            <View style={styles.recordEmpty}>
+              <Text style={styles.recordEmptyTitle}>No completed games yet</Text>
+              <Text style={styles.recordEmptySubtitle}>Finish a Spades game to see your record here.</Text>
+            </View>
+          ) : (
+            <View style={styles.recordGrid}>
+              {records.map((record) => (
+                <View key={record.key} style={styles.recordCard}>
+                  <Text style={styles.recordTitle}>{record.label}</Text>
+                  <View style={styles.recordStatsRow}>
+                    <View style={styles.statBlock}>
+                      <Text style={styles.statValue}>{record.wins}</Text>
+                      <Text style={styles.statLabel}>Wins</Text>
+                    </View>
+                    <View style={styles.statBlock}>
+                      <Text style={styles.statValue}>{record.losses}</Text>
+                      <Text style={styles.statLabel}>Losses</Text>
+                    </View>
+                    {record.ties > 0 ? (
+                      <View style={styles.statBlock}>
+                        <Text style={styles.statValue}>{record.ties}</Text>
+                        <Text style={styles.statLabel}>Ties</Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.statBlock}>
+                      <Text style={styles.statValue}>{record.total}</Text>
+                      <Text style={styles.statLabel}>Games</Text>
+                    </View>
+                    <View style={styles.statBlock}>
+                      <Text style={styles.statValue}>{record.winRate}%</Text>
+                      <Text style={styles.statLabel}>Win %</Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          )}
         </View>
 
         <View style={styles.actionPanel}>
@@ -283,6 +309,14 @@ const styles = StyleSheet.create({
   recordsSection: {
     gap: 18,
   },
+  recordsLoading: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  recordsError: {
+    color: Colors.dark.negative,
+    fontSize: 13,
+  },
   sectionTitle: {
     color: Colors.dark.textPrimary,
     fontSize: 20,
@@ -291,6 +325,23 @@ const styles = StyleSheet.create({
   },
   recordGrid: {
     gap: 16,
+  },
+  recordEmpty: {
+    borderRadius: 24,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+    backgroundColor: '#1D1828',
+    gap: 6,
+  },
+  recordEmptyTitle: {
+    color: Colors.dark.textPrimary,
+    fontWeight: '600',
+  },
+  recordEmptySubtitle: {
+    color: Colors.dark.textSecondary,
+    fontSize: 13,
   },
   recordCard: {
     borderRadius: 24,

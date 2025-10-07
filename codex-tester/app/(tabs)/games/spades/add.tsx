@@ -273,6 +273,8 @@ export default function LiveSpadesGameScreen() {
         team2Id: teamTwo.id,
         goalScore: parsedGoal,
         rounds,
+        team1Members: teamOne.members,
+        team2Members: teamTwo.members,
         startedAt,
         endedAt: new Date(),
       });

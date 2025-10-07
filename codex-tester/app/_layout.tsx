@@ -27,11 +27,15 @@ export default function RootLayout() {
             name="sign-in"
             options={{ title: 'Sign In', headerBackTitle: 'Back' }}
           />
-          <Stack.Screen
-            name="sign-up"
-            options={{ title: 'Sign Up', headerBackTitle: 'Back' }}
-          />
-        </Stack>
+        <Stack.Screen
+          name="sign-up"
+          options={{ title: 'Sign Up', headerBackTitle: 'Back' }}
+        />
+        <Stack.Screen
+          name="settings"
+          options={{ title: 'Settings', headerBackTitle: 'Profile' }}
+        />
+      </Stack>
         <StatusBar style="auto" />
       </AuthProvider>
     </ThemeProvider>
