@@ -1,4 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
+import { BarcodeScanningResult, useCameraPermissions } from 'expo-camera';
+import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import React from 'react';
 import {
@@ -23,6 +25,7 @@ import {
   SpadesRound,
   SpadesTeam,
   createSpadesGame,
+  fetchTeamById,
   fetchTeamsForUser,
 } from '@/src/shared/spades-store';
 
@@ -62,6 +65,7 @@ export default function LiveSpadesGameScreen() {
   const [loadingTeams, setLoadingTeams] = React.useState(true);
   const [teamOne, setTeamOne] = React.useState<SpadesTeam | null>(null);
   const [teamTwo, setTeamTwo] = React.useState<SpadesTeam | null>(null);
+  const [teamTwoSource, setTeamTwoSource] = React.useState<'scan' | null>(null);
   const [goalScore, setGoalScore] = React.useState('500');
   const [rounds, setRounds] = React.useState<SpadesRound[]>([]);
   const [isHandModalVisible, setHandModalVisible] = React.useState(false);
@@ -69,12 +73,18 @@ export default function LiveSpadesGameScreen() {
   const [teamPickerSlot, setTeamPickerSlot] = React.useState<1 | 2 | null>(null);
   const [isSubmittingGame, setSubmittingGame] = React.useState(false);
   const [teamsError, setTeamsError] = React.useState<string | null>(null);
+  const [teamScannerVisible, setTeamScannerVisible] = React.useState(false);
+  const [teamScannerPermission, requestTeamScannerPermission] = useCameraPermissions();
+  const [teamScannerRequesting, setTeamScannerRequesting] = React.useState(false);
+  const [teamScannerHandled, setTeamScannerHandled] = React.useState(false);
+  const [teamScannerError, setTeamScannerError] = React.useState<string | null>(null);
 
   const loadTeams = React.useCallback(async () => {
     if (!user) {
       setAvailableTeams([]);
       setTeamOne(null);
       setTeamTwo(null);
+      setTeamTwoSource(null);
       setLoadingTeams(false);
       return;
     }
@@ -85,27 +95,28 @@ export default function LiveSpadesGameScreen() {
       const teams = await fetchTeamsForUser(user.id);
       setAvailableTeams(teams);
 
-      setTeamOne((prev) => {
-        if (prev && teams.some((team) => team.id === prev.id)) {
-          return prev;
-        }
-        return teams[0] ?? null;
-      });
+      const teamMap = new Map(teams.map((team) => [team.id, team]));
+      const nextTeamOne =
+        (teamOne && teamMap.get(teamOne.id)) ?? teams[0] ?? null;
+      setTeamOne(nextTeamOne ?? null);
 
-      setTeamTwo((prev) => {
-        if (prev && teams.some((team) => team.id === prev.id) && prev.id !== teamOne?.id) {
-          return prev;
-        }
-        const fallback = teams.find((team) => team.id !== teams[0]?.id);
-        return fallback ?? null;
-      });
+      const keepTeamTwo =
+        teamTwoSource === 'scan' && teamTwo && teamTwo.id !== nextTeamOne?.id;
+
+      if (keepTeamTwo) {
+        setTeamTwo(teamTwo);
+        setTeamTwoSource('scan');
+      } else {
+        setTeamTwo(null);
+        setTeamTwoSource(null);
+      }
     } catch (error) {
       console.error('Failed to load teams', error);
       setTeamsError('Unable to load teams. Pull to refresh or try again soon.');
     } finally {
       setLoadingTeams(false);
     }
-  }, [teamOne?.id, user]);
+  }, [teamOne, teamTwo, teamTwoSource, user]);
 
   React.useEffect(() => {
     loadTeams();
@@ -117,14 +128,117 @@ export default function LiveSpadesGameScreen() {
     }, [loadTeams]),
   );
 
+  React.useEffect(() => {
+    if (!teamScannerVisible) {
+      setTeamScannerHandled(false);
+      setTeamScannerError(null);
+    }
+  }, [teamScannerVisible]);
+
+  const handleCloseTeamScanner = React.useCallback(() => {
+    setTeamScannerVisible(false);
+    setTeamScannerHandled(false);
+    setTeamScannerError(null);
+  }, []);
+
+  const handleOpenTeamScanner = React.useCallback(async () => {
+    if (teamScannerRequesting) {
+      return;
+    }
+
+    if (teamScannerPermission?.granted) {
+      setTeamScannerHandled(false);
+      setTeamScannerVisible(true);
+      return;
+    }
+
+    setTeamScannerRequesting(true);
+    try {
+      const permissionResult = await requestTeamScannerPermission?.();
+      const granted = permissionResult?.granted ?? teamScannerPermission?.granted ?? false;
+      if (granted) {
+        setTeamScannerHandled(false);
+        setTeamScannerVisible(true);
+      } else {
+        Alert.alert('Camera permission needed', 'Allow camera access to scan team QR codes.');
+      }
+    } catch (error) {
+      console.error('Failed to request camera permission', error);
+      Alert.alert('Camera error', 'Could not access the camera. Try again later.');
+    } finally {
+      setTeamScannerRequesting(false);
+    }
+  }, [requestTeamScannerPermission, teamScannerPermission?.granted, teamScannerRequesting]);
+
+  const handleTeamQrScanned = React.useCallback(
+    async (scan: BarcodeScanningResult) => {
+      if (teamScannerHandled) {
+        return;
+      }
+      setTeamScannerHandled(true);
+      try {
+        const parsed = Linking.parse(scan?.data ?? '');
+        const pickFirstString = (value: unknown): string | undefined => {
+          if (Array.isArray(value)) {
+            const first = value[0];
+            return typeof first === 'string' ? first : undefined;
+          }
+          return typeof value === 'string' ? value : undefined;
+        };
+        const scannedTeamId = pickFirstString(parsed?.queryParams?.teamId);
+        if (!scannedTeamId) {
+          setTeamScannerError('Invalid team QR code. Scan a code generated from team details.');
+          setTeamScannerHandled(false);
+          return;
+        }
+        if (teamOne?.id === scannedTeamId) {
+          setTeamScannerError('Team 2 must be different from Team 1.');
+          setTeamScannerHandled(false);
+          return;
+        }
+
+        let fetchedTeam: SpadesTeam | null = null;
+        try {
+          fetchedTeam = await fetchTeamById(scannedTeamId);
+        } catch (fetchError) {
+          console.error('Failed to load scanned team', fetchError);
+          setTeamScannerError('Unable to load the scanned team.');
+          setTeamScannerHandled(false);
+          return;
+        }
+
+        if (!fetchedTeam) {
+          setTeamScannerError('Team not found or has been archived.');
+          setTeamScannerHandled(false);
+          return;
+        }
+
+        setTeamTwo(fetchedTeam);
+        setTeamTwoSource('scan');
+        setRounds([]);
+        setHandDraft(initialHandDraft);
+        handleCloseTeamScanner();
+      } catch (error) {
+        console.error('Failed to parse team QR code', error);
+        setTeamScannerError('Could not read that QR code. Try again.');
+        setTeamScannerHandled(false);
+      }
+    },
+    [handleCloseTeamScanner, teamOne?.id, teamScannerHandled],
+  );
+
   const handleOpenTeamPicker = React.useCallback(
     (slot: 1 | 2) => {
       if (loadingTeams) {
         return;
       }
-      setTeamPickerSlot(slot);
+      if (slot === 1) {
+        setTeamPickerSlot(1);
+      } else {
+        handleOpenTeamScanner();
+      }
     },
-    [loadingTeams],
+    [handleOpenTeamScanner, loadingTeams],
   );
 
   const handleSelectTeam = React.useCallback(
@@ -133,18 +247,14 @@ export default function LiveSpadesGameScreen() {
         setTeamOne(team);
         if (teamTwo?.id === team.id) {
           setTeamTwo(null);
-        }
-      } else if (teamPickerSlot === 2) {
-        setTeamTwo(team);
-        if (teamOne?.id === team.id) {
-          setTeamOne(null);
+          setTeamTwoSource(null);
         }
       }
       setRounds([]);
       setHandDraft(initialHandDraft);
       setTeamPickerSlot(null);
     },
-    [teamOne?.id, teamTwo?.id],
+    [teamTwo?.id],
   );
 
   const handleGoalChange = React.useCallback((value: string) => {
@@ -292,14 +402,13 @@ export default function LiveSpadesGameScreen() {
     }
   }, [goalScore, rounds, router, startedAt, teamOne, teamTwo, user]);
 
-  const teamPickerVisible = teamPickerSlot !== null;
+  const teamPickerVisible = teamPickerSlot === 1;
   const filteredTeams = React.useMemo(() => {
-    if (!teamPickerSlot) {
+    if (teamPickerSlot !== 1) {
       return availableTeams;
     }
-    const blockedId = teamPickerSlot === 1 ? teamTwo?.id : teamOne?.id;
-    return availableTeams.filter((team) => team.id !== blockedId);
-  }, [availableTeams, teamOne?.id, teamTwo?.id, teamPickerSlot]);
+    return availableTeams.filter((team) => team.id !== teamTwo?.id);
+  }, [availableTeams, teamPickerSlot, teamTwo?.id]);
 
   const renderRound = (round: SpadesRound) => {
     const teamOneEntry = teamOne
@@ -375,24 +484,39 @@ export default function LiveSpadesGameScreen() {
         ) : (
           <>
             <View style={styles.teamSelectorGroup}>
-              <Text style={styles.sectionLabel}>Teams</Text>
-              <View style={styles.teamSelectRow}>
+              <Text style={styles.sectionLabel}>Team 1</Text>
+              <TouchableOpacity
+                style={styles.teamSelect}
+                activeOpacity={0.85}
+                onPress={() => handleOpenTeamPicker(1)}>
+                <Text style={styles.teamSelectLabel}>{teamOne ? teamOne.label : 'Select Team 1'}</Text>
+                <Text style={styles.teamSelectMembers}>
+                  {teamOne ? teamOne.members.map((member) => member.displayName).join(' · ') : 'Tap to choose'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.teamSelectorGroup}>
+              <Text style={styles.sectionLabel}>Team 2</Text>
+              <View style={styles.teamScanCard}>
+                {teamTwo ? (
+                  <>
+                    <Text style={styles.teamSelectLabel}>{teamTwo.label}</Text>
+                    <Text style={styles.teamSelectMembers}>
+                      {teamTwo.members.map((member) => member.displayName).join(' · ')}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={styles.teamSelectMembers}>Scan the team QR from its details page to set the opponent.</Text>
+                )}
+                {teamScannerError ? <Text style={styles.scanError}>{teamScannerError}</Text> : null}
                 <TouchableOpacity
-                  style={styles.teamSelect}
+                  style={styles.scanButton}
                   activeOpacity={0.85}
-                  onPress={() => handleOpenTeamPicker(1)}>
-                  <Text style={styles.teamSelectLabel}>{teamOne ? teamOne.label : 'Select Team 1'}</Text>
-                  <Text style={styles.teamSelectMembers}>
-                    {teamOne ? teamOne.members.map((member) => member.displayName).join(' · ') : 'Tap to choose'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.teamSelect}
-                  activeOpacity={0.85}
-                  onPress={() => handleOpenTeamPicker(2)}>
-                  <Text style={styles.teamSelectLabel}>{teamTwo ? teamTwo.label : 'Select Team 2'}</Text>
-                  <Text style={styles.teamSelectMembers}>
-                    {teamTwo ? teamTwo.members.map((member) => member.displayName).join(' · ') : 'Tap to choose'}
+                  onPress={handleOpenTeamScanner}
+                  disabled={teamScannerRequesting}>
+                  <Text style={styles.scanButtonLabel}>
+                    {teamScannerRequesting ? 'Opening Camera…' : teamTwo ? 'Rescan Team QR' : 'Scan Team QR'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -984,5 +1108,30 @@ const styles = StyleSheet.create({
   teamOptionMembers: {
     color: Colors.dark.textSecondary,
     fontSize: 12,
+  },
+  teamScanCard: {
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    backgroundColor: Colors.dark.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.dark.border,
+    gap: 6,
+  },
+  scanError: {
+    color: Colors.dark.negative,
+    fontSize: 12,
+  },
+  scanButton: {
+    marginTop: 8,
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    backgroundColor: Colors.dark.accent,
+    alignItems: 'center',
+  },
+  scanButtonLabel: {
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
 });

@@ -450,6 +450,25 @@ export async function fetchArchivedTeamsForUser(userId: string): Promise<SpadesT
   return hydrateTeams(((teamRows as TeamRow[] | null) ?? []));
 }
 
+export async function fetchTeamById(teamId: string): Promise<SpadesTeam | null> {
+  const { data, error } = await supabase
+    .from('teams')
+    .select('id, name, created_at, archived')
+    .eq('id', teamId)
+    .maybeSingle<TeamRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data || data.archived) {
+    return null;
+  }
+
+  const teams = await hydrateTeams([data]);
+  return teams[0] ?? null;
+}
+
 export async function fetchProfileGameRecords(userId: string): Promise<GameRecordSummary[]> {
   const { data, error } = await supabase
     .from('player_stats_users')
