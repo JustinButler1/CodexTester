@@ -498,10 +498,43 @@ export async function fetchProfileGameRecords(userId: string): Promise<GameRecor
 }
 
 export async function fetchSpadesMatchSummaries(userId: string): Promise<SpadesMatchSummary[]> {
+  // Find games the user participated in (registered players only) and games they created
+  const [memberGameIdsResult, createdGameIdsResult] = await Promise.all([
+    supabase
+      .from('spades_game_team_members')
+      .select('game_id')
+      .eq('user_id', userId),
+    supabase
+      .from('spades_games')
+      .select('id')
+      .eq('created_by', userId),
+  ]);
+
+  const memberGameRows = (memberGameIdsResult.data as Array<{ game_id: string }> | null) ?? [];
+  const createdGameRows = (createdGameIdsResult.data as Array<{ id: string }> | null) ?? [];
+
+  const combinedIds = Array.from(
+    new Set<string>([
+      ...memberGameRows.map((r) => r.game_id),
+      ...createdGameRows.map((r) => r.id),
+    ].filter(Boolean)),
+  );
+
+  if (memberGameIdsResult.error) {
+    throw memberGameIdsResult.error;
+  }
+  if (createdGameIdsResult.error) {
+    throw createdGameIdsResult.error;
+  }
+
+  if (combinedIds.length === 0) {
+    return [];
+  }
+
   const { data: gameRows, error: gamesError } = await supabase
     .from('spades_games')
     .select('id, goal_score, status, started_at, ended_at, team1_id, team2_id')
-    .eq('created_by', userId)
+    .in('id', combinedIds)
     .order('started_at', { ascending: false });
 
   if (gamesError) {
