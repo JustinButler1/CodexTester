@@ -13,9 +13,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
-import { supabase } from '@/src/shared/supabase-client';
 import { useAuth } from '@/src/shared/auth-context';
 import { ensureProfile } from '@/src/shared/profile-service';
+import { supabase } from '@/src/shared/supabase-client';
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
